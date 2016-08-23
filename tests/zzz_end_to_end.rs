@@ -7,8 +7,7 @@ use stomping::*;
 #[test]
 fn can_round_trip_text() {
     env_logger::init().unwrap_or(());
-    let mut client = Client::connect(("localhost", 61613)).expect("connect");
-    client.authenticate("guest", "guest").expect("authenticate");
+    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest"))).expect("connect");
     let body = b"42";
 
     client.subscribe("/queue/can_blah", "one", AckMode::Auto).expect("subscribe");
@@ -21,8 +20,7 @@ fn can_round_trip_text() {
 #[test]
 fn can_round_trip_binary_blobs() {
     env_logger::init().unwrap_or(());
-    let mut client = Client::connect(("localhost", 61613)).expect("connect");
-    client.authenticate("guest", "guest").expect("authenticate");
+    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest"))).expect("connect");
     let body = b"\x00\x01\x02\x03";
 
     client.subscribe("/queue/can_blah", "one", AckMode::Auto).expect("subscribe");

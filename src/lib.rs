@@ -21,7 +21,7 @@ pub enum AckMode {
 pub type Headers = BTreeMap<String, String>;
 
 impl Client {
-    pub fn connect<A: ToSocketAddrs>(a: A) -> Result<Self> {
+    pub fn connect<A: ToSocketAddrs>(a: A, credentials: Option<(&str, &str)>) -> Result<Self> {
         let wr = try!(TcpStream::connect(a));
         debug!("connected to: {:?}", try!(wr.peer_addr()));
         let rdr = try!(wr.try_clone());
@@ -31,18 +31,23 @@ impl Client {
             rdr: BufReader::new(rdr),
         };
         conn_headers.insert("accept-version".to_string(), "1.2".to_string());
+        if let Some((user, pass)) = credentials {
+            conn_headers.insert("login".to_string(), user.to_string());
+            conn_headers.insert("passcode".to_string(), pass.to_string());
+        }
         try!(client.send("CONNECT", conn_headers, &[]));
 
-        let (cmd, hdrs, _) = try!(client.read_frame());
-        if &cmd != "CONNECTED" {
+        let (cmd, hdrs, body) = try!(client.read_frame());
+        if &cmd == "ERROR" {
+            let body = String::from_utf8_lossy(&body).into_owned();
+            warn!("Error response from server: {:?}: {:?}", cmd, hdrs);
+            return Err(ErrorKind::StompError(cmd, hdrs, body).into());
+        } else if &cmd != "CONNECTED" {
             warn!("Bad response from server: {:?}: {:?}", cmd, hdrs);
             return Err(ErrorKind::ProtocolError.into());
         }
 
         Ok(client)
-    }
-    pub fn authenticate(&mut self, user: &str, pass: &str) -> Result<()> {
-        Ok(())
     }
 
     pub fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
@@ -91,7 +96,7 @@ impl Client {
         while buf.trim().is_empty() {
             buf.clear();
             try!(self.rdr.read_line(&mut buf));
-            debug!("Read command line: {:?}", buf);
+            trace!("Read command line: {:?}", buf);
         }
         let command = buf.trim().to_string();
 
@@ -100,7 +105,7 @@ impl Client {
         loop {
             buf.clear();
             try!(self.rdr.read_line(&mut buf));
-            debug!("Read header line: {:?}", buf);
+            trace!("Read header line: {:?}", buf);
             if buf == "\n" {
                 break;
             }
@@ -109,24 +114,24 @@ impl Client {
             let value = try!(it.next().ok_or(ErrorKind::ProtocolError));
             headers.insert(name.to_string(), value.to_string());
         }
-        debug!("Reading body");
+        trace!("Reading body");
         let mut buf = Vec::new();
         if let Some(lenstr) = headers.get("content-length") {
             let nbytes: u64 = try!(lenstr.parse());
-            debug!("Read bytes: {}", nbytes);
+            trace!("Read bytes: {}", nbytes);
             try!(self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut buf));
         } else {
-            debug!("Read until nul");
+            trace!("Read until nul");
             try!(self.rdr.read_until(b'\0', &mut buf));
         }
-        debug!("Read body: {:?}", buf);
+        trace!("Read body: {:?}", buf);
         if buf.pop() != Some(b'\0') {
             warn!("No null at end of body");
             return Err(ErrorKind::ProtocolError.into());
         }
 
         let frame = (command, headers, buf);
-        debug!("read frame: {:?}", frame);
+        trace!("read frame: {:?}", frame);
         Ok(frame)
     }
 }

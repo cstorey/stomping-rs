@@ -5,15 +5,29 @@ extern crate log;
 use stomping::*;
 
 #[test]
-
 fn can_round_trip_text() {
     env_logger::init().unwrap_or(());
     let mut client = Client::connect(("localhost", 61613)).expect("connect");
     client.authenticate("guest", "guest").expect("authenticate");
-    
+    let body = b"42";
+
     client.subscribe("/queue/can_blah", "one", AckMode::Auto).expect("subscribe");
-    client.publish("/queue/can_blah", b"42").expect("publish");
+    client.publish("/queue/can_blah", body).expect("publish");
 
     let (headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, b"42");
+    assert_eq!(msg, body);
+}
+
+#[test]
+fn can_round_trip_binary_blobs() {
+    env_logger::init().unwrap_or(());
+    let mut client = Client::connect(("localhost", 61613)).expect("connect");
+    client.authenticate("guest", "guest").expect("authenticate");
+    let body = b"\x00\x01\x02\x03";
+
+    client.subscribe("/queue/can_blah", "one", AckMode::Auto).expect("subscribe");
+    client.publish("/queue/can_blah", body).expect("publish");
+
+    let (headers, msg) = client.consume_next().expect("consume_next");
+    assert_eq!(msg, body);
 }

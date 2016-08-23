@@ -4,7 +4,7 @@ extern crate error_chain;
 extern crate log;
 use std::collections::BTreeMap;
 use std::net::{TcpStream, ToSocketAddrs};
-use std::io::{BufWriter, BufReader, BufRead, Write};
+use std::io::{BufWriter, BufReader, BufRead, Write, Read};
 
 mod errors;
 use errors::*;
@@ -31,7 +31,7 @@ impl Client {
             rdr: BufReader::new(rdr),
         };
         conn_headers.insert("accept-version".to_string(), "1.2".to_string());
-        client.send("CONNECT", conn_headers, &[]);
+        try!(client.send("CONNECT", conn_headers, &[]));
 
         let (cmd, hdrs, _) = try!(client.read_frame());
         if &cmd != "CONNECTED" {
@@ -55,6 +55,7 @@ impl Client {
     pub fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
+        h.insert("content-length".to_string(), format!("{}", body.len()));
         try!(self.send("SEND", h, body));
         Ok(())
     }
@@ -110,7 +111,14 @@ impl Client {
         }
         debug!("Reading body");
         let mut buf = Vec::new();
-        try!(self.rdr.read_until(b'\0', &mut buf));
+        if let Some(lenstr) = headers.get("content-length") {
+            let nbytes: u64 = try!(lenstr.parse());
+            debug!("Read bytes: {}", nbytes);
+            try!(self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut buf));
+        } else {
+            debug!("Read until nul");
+            try!(self.rdr.read_until(b'\0', &mut buf));
+        }
         debug!("Read body: {:?}", buf);
         if buf.pop() != Some(b'\0') {
             warn!("No null at end of body");

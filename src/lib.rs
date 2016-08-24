@@ -121,7 +121,7 @@ impl Client {
     pub fn ack(&mut self, headers: &Headers) -> Result<()> {
         let mut h = BTreeMap::new();
         let mid = try!(headers.get("ack").ok_or(ErrorKind::NoAckHeader));
-        // h.insert("content-length".to_string(), format!("{}", body.len()));
+        h.insert("id".to_string(), mid.to_string());
         try!(self.send("ACK", h, &[]));
         Ok(())
     }

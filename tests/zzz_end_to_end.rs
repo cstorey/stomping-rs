@@ -66,6 +66,7 @@ fn should_allow_acking_individual_messages() {
     client.subscribe(&queue, "one", AckMode::ClientIndividual).expect("subscribe");
     client.publish(&queue, b"first").expect("publish");
     client.publish(&queue, b"second").expect("publish");
+    client.publish(&queue, b"third").expect("publish");
 
     let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, b"first");
@@ -80,6 +81,8 @@ fn should_allow_acking_individual_messages() {
     client.subscribe(&queue, "one", AckMode::ClientIndividual).expect("subscribe");
     let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, b"first");
+    let (_headers, msg) = client.consume_next().expect("consume_next");
+    assert_eq!(msg, b"third");
 }
 
 // This test never actually terminates.

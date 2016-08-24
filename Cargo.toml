@@ -11,3 +11,4 @@ log = "0.3.6"
 clap = "2.10.2"
 env_logger = "0.3.4"
 url = "1.2.0"
+uuid = { version = "0.3.1", features = ["v4"] }

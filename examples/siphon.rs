@@ -24,7 +24,7 @@ fn main(){
 
     println!("user: {:?}; pass:{:?}", url.username(), url.password());
     let creds = url.password().map(|p| (url.username(), p));
-    let mut client = Client::connect(addr, creds).expect("connect");
+    let mut client = Client::connect(addr, creds, None).expect("connect");
 
     client.subscribe(url.path(), "0", AckMode::Auto).expect("subscribe");
 

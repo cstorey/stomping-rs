@@ -1,10 +1,12 @@
 use std::{io, num};
 use std::collections::BTreeMap;
+use std::time;
 
 error_chain! (
     foreign_links {
         io::Error, Io;
         num::ParseIntError, ParseInt;
+        time::SystemTimeError, SystemTime;
     }
 
     errors {

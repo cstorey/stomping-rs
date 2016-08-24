@@ -15,5 +15,8 @@ error_chain! (
         ProtocolError {
             description("protocol error")
         }
+        NoAckHeader {
+            description("Tried to ack a frame with no `ack` header")
+        }
     }
 );

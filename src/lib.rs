@@ -16,6 +16,16 @@ pub struct Client {
 
 pub enum AckMode {
     Auto,
+    ClientIndividual,
+}
+
+impl AckMode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            &AckMode::Auto => "auto",
+            &AckMode::ClientIndividual => "client-individual",
+        }
+    }
 }
 
 pub type Headers = BTreeMap<String, String>;
@@ -54,6 +64,7 @@ impl Client {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("id".to_string(), id.to_string());
+        h.insert("ack".to_string(), mode.as_str().to_string());
         try!(self.send("SUBSCRIBE", h, b""));
         Ok(())
     }
@@ -64,6 +75,15 @@ impl Client {
         try!(self.send("SEND", h, body));
         Ok(())
     }
+    pub fn ack(&mut self, headers: &Headers) -> Result<()> {
+        let mut h = BTreeMap::new();
+        let mid = try!(headers.get("ack").ok_or(ErrorKind::NoAckHeader));
+        // h.insert("content-length".to_string(), format!("{}", body.len()));
+        try!(self.send("ACK", h, &[]));
+        Ok(())
+    }
+
+
     pub fn consume_next(&mut self) -> Result<(Headers, Vec<u8>)> {
         let (cmd, hdrs, body) = try!(self.read_frame());
         if &cmd != "MESSAGE" {

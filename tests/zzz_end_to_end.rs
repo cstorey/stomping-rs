@@ -58,6 +58,22 @@ fn client_acks_should_allow_redelivery() {
 }
 
 #[test]
+fn can_encode_headers_correctly() {
+    env_logger::init().unwrap_or(());
+    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
+    let body = b"42";
+    let queue = format!("/queue/can_encode_headers_correctly:{}", Uuid::new_v4());
+
+    client.subscribe(&queue, "one", AckMode::Auto).expect("subscribe");
+    client.publish(&queue, body).expect("publish");
+
+    let (headers, msg) = client.consume_next().expect("consume_next");
+    println!("h: {:?}", headers);
+    assert_eq!(headers["destination"], queue);
+}
+
+
+#[test]
 fn should_allow_acking_individual_messages() {
     env_logger::init().unwrap_or(());
     let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
@@ -72,7 +88,7 @@ fn should_allow_acking_individual_messages() {
     assert_eq!(msg, b"first");
     let (headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, b"second");
-    client.ack(&headers);
+    client.ack(&headers).expect("ack");
 
     // Disconnect
     drop(client);

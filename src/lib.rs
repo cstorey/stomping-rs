@@ -31,6 +31,42 @@ impl AckMode {
     }
 }
 
+fn encode_header(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        match c {
+            '\r' => out.push_str("\\r"),
+            '\n' => out.push_str("\\n"),
+            '\\' => out.push_str("\\\\"),
+            ':' => out.push_str("\\c"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn decode_header(s: &str) -> String {
+    let mut out = String::new();
+    let mut it = s.chars();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' => {
+                match it.next() {
+                    Some('r') => out.push('\r'),
+                    Some('n') => out.push('\n'),
+                    Some('c') => out.push(':'),
+                    Some('\\') => out.push('\\'),
+                    other => warn!("Unrecognised escape: \\{:?}", other),
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+
+
 pub type Headers = BTreeMap<String, String>;
 
 fn parse_keepalive(headervalue: Option<&str>) -> Result<(Option<Duration>, Option<Duration>)> {
@@ -145,7 +181,7 @@ impl Client {
 
         try!(writeln!(self.wr, "{}", command));
         for (k, v) in headers {
-            try!(writeln!(self.wr, "{}:{}", k, v));
+            try!(writeln!(self.wr, "{}:{}", encode_header(&k), encode_header(&v)));
         }
         try!(writeln!(self.wr, ""));
 
@@ -206,7 +242,7 @@ impl Client {
             let mut it = buf.trim().splitn(2, ':');
             let name = try!(it.next().ok_or(ErrorKind::ProtocolError));
             let value = try!(it.next().ok_or(ErrorKind::ProtocolError));
-            headers.insert(name.to_string(), value.to_string());
+            headers.insert(decode_header(name), decode_header(value));
         }
         trace!("Reading body");
         let mut buf = Vec::new();
@@ -322,7 +358,7 @@ impl PaceMaker {
 #[cfg(test)]
 mod test {
     extern crate env_logger;
-    use super::{parse_keepalive, PaceMaker, BeatAction};
+    use super::{parse_keepalive, encode_header, decode_header, PaceMaker, BeatAction};
     use std::time::{SystemTime, Duration};
 
     #[test]
@@ -473,5 +509,17 @@ mod test {
         assert_eq!(pm.handle_read_timeout(start + Duration::from_millis(10))
                      .expect("handle_read_timeout"),
                    BeatAction::SendClientHeart);
+    }
+
+
+    #[test]
+    fn can_encode_headers_correctly() {
+        assert_eq!(&encode_header("\r\n:\\"), "\\r\\n\\c\\\\");
+        assert_eq!(&encode_header("foobar"), "foobar")
+    }
+
+    #[test]
+    fn can_decode_headers_correctly() {
+        assert_eq!(&decode_header("moo-\\r\\n\\c\\\\-fish"), "moo-\r\n:\\-fish");
     }
 }

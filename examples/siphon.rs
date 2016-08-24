@@ -28,7 +28,6 @@ fn main(){
     } else {
         None
     };
-    println!("heartbeat: {:?}", heartbeat);
 
     let addr = url.with_default_port(|_| Ok(61613)).expect("host-port");
 

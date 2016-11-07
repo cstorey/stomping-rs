@@ -140,8 +140,9 @@ impl Client {
 
     fn reset_timeouts(&mut self) -> Result<()> {
         let now = SystemTime::now();
-        try!(self.wr.get_mut().set_read_timeout(self.pace.read_timeout(now)));
-        try!(self.rdr.get_mut().set_read_timeout(self.pace.read_timeout(now)));
+        let timeout = self.pace.read_timeout(now);
+        try!(self.wr.get_mut().set_read_timeout(timeout));
+        try!(self.rdr.get_mut().set_read_timeout(timeout));
         Ok(())
     }
 

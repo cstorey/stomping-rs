@@ -220,7 +220,7 @@ impl Client {
                             try!(self.reset_timeouts());
                             debug!("Sent heartbeat");
                         }
-                        _ => unimplemented!(),
+                        BeatAction::PeerFailed => return Err(ErrorKind::PeerFailed.into()),
                     };
                 }
                 Err(e) => {

@@ -20,5 +20,8 @@ error_chain! (
         NoAckHeader {
             description("Tried to ack a frame with no `ack` header")
         }
+        PeerFailed {
+            description("peer seems to be unresponsive")
+        }
     }
 );

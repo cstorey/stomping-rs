@@ -19,6 +19,7 @@ fn can_round_trip_text() {
 
     let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, body);
+    client.disconnect().expect("disconnect");
 }
 
 #[test]
@@ -33,6 +34,7 @@ fn can_round_trip_binary_blobs() {
 
     let (headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, body);
+    client.disconnect().expect("disconnect");
 }
 
 #[test]
@@ -55,6 +57,7 @@ fn client_acks_should_allow_redelivery() {
     client.subscribe(&queue, "one", AckMode::ClientIndividual).expect("subscribe");
     let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, body);
+    client.disconnect().expect("disconnect");
 }
 
 #[test]
@@ -70,6 +73,7 @@ fn can_encode_headers_correctly() {
     let (headers, msg) = client.consume_next().expect("consume_next");
     println!("h: {:?}", headers);
     assert_eq!(headers["destination"], queue);
+    client.disconnect().expect("disconnect");
 }
 
 
@@ -99,6 +103,7 @@ fn should_allow_acking_individual_messages() {
     assert_eq!(msg, b"first");
     let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, b"third");
+    client.disconnect().expect("disconnect");
 }
 
 // This test never actually terminates.
@@ -115,4 +120,5 @@ fn thing_to_test_timeouts() {
 
     let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, b"first");
+    client.disconnect().expect("disconnect");
 }

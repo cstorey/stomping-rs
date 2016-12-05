@@ -180,6 +180,23 @@ impl Client {
         Ok((hdrs, body))
     }
 
+    pub fn disconnect(mut self) -> Result<()> {
+        let mut h = BTreeMap::new();
+        h.insert("receipt".to_string(), "42".to_string());
+        try!(self.send("DISCONNECT", h, b""));
+
+        loop {
+            let (cmd, hdrs, _) = try!(self.read_frame());
+            if &cmd == "RECEIPT" {
+                break;
+            } else {
+                warn!("Unexpected message from server: {:?}: {:?}", cmd, hdrs);
+            }
+        }
+
+        Ok(())
+    }
+
     fn send(&mut self,
             command: &str,
             headers: BTreeMap<String, String>,

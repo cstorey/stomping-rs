@@ -134,13 +134,21 @@ impl Client {
         let (sx, sy) = try!(parse_keepalive(hdrs.get("heart-beat").map(|s| &**s)));
         client.pace = PaceMaker::new(keepalive, sx, sy, start);
 
-        try!(client.reset_timeouts());
+        try!(client.reset_timeouts(None));
         Ok(client)
     }
 
-    fn reset_timeouts(&mut self) -> Result<()> {
+    fn reset_timeouts(&mut self, deadline: Option<SystemTime>) -> Result<()> {
         let now = SystemTime::now();
-        let timeout = self.pace.read_timeout(now);
+        let remaining = deadline.and_then(|dl| dl.duration_since( now).ok());
+        debug!("#reset_timeouts: remaining: {:?}", remaining);
+        let timeout = match(remaining, self.pace.read_timeout(now)) {
+            (Some(t), Some(rt)) => Some(cmp::min(t, rt)),
+            (Some(t), None) => Some(t),
+            (None, Some(rt)) => Some(rt),
+            (None, None) => None,
+        };
+
         try!(self.wr.get_mut().set_read_timeout(timeout));
         try!(self.rdr.get_mut().set_read_timeout(timeout));
         Ok(())
@@ -180,6 +188,19 @@ impl Client {
         Ok((hdrs, body))
     }
 
+    pub fn maybe_consume_next(&mut self, timeout: Duration) -> Result<Option<(Headers, Vec<u8>)>> {
+        if let Some((cmd, hdrs, body)) = try!(self.maybe_read_frame(timeout)) {
+            if &cmd != "MESSAGE" {
+                warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
+                return Err(ErrorKind::ProtocolError.into());
+            }
+
+            Ok(Some((hdrs, body)))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn disconnect(mut self) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("receipt".to_string(), "42".to_string());
@@ -213,28 +234,36 @@ impl Client {
         try!(self.wr.write(b"\0"));
         try!(self.wr.flush());
         self.pace.write_observed(SystemTime::now());
-        try!(self.reset_timeouts());
+        try!(self.reset_timeouts(None));
         Ok(())
     }
 
-    fn read_line(&mut self, buf: &mut String) -> Result<()> {
+    fn read_line(&mut self, buf: &mut String, timeout: Option<SystemTime>) -> Result<Option<()>> {
         loop {
+            let deadline_passed = timeout.map(|to| to <= SystemTime::now()).unwrap_or(false);
+            if deadline_passed {
+                return Ok(None)
+            }
+
+            try!(self.reset_timeouts(timeout));
             let result = self.rdr.read_line(buf);
             debug!("read line result: {:?}", result);
             match result {
                 Ok(_) => {
                     self.pace.read_observed(SystemTime::now());
-                    try!(self.reset_timeouts());
-                    return Ok(());
+                    try!(self.reset_timeouts(None));
+                    return Ok(Some(()));
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    match try!(self.pace.handle_read_timeout(SystemTime::now())) {
-                        BeatAction::Retry => try!(self.reset_timeouts()),
+                    let action = try!(self.pace.handle_read_timeout(SystemTime::now()));
+                    debug!("Would block: {:?}; timeout? {:?}", action, timeout);
+                    match action {
+                        BeatAction::Retry => try!(self.reset_timeouts(None)),
                         BeatAction::SendClientHeart => {
                             try!(self.wr.write_all(b"\n"));
                             try!(self.wr.flush());
                             self.pace.write_observed(SystemTime::now());
-                            try!(self.reset_timeouts());
+                            try!(self.reset_timeouts(None));
                             debug!("Sent heartbeat");
                         }
                         BeatAction::PeerFailed => return Err(ErrorKind::PeerFailed.into()),
@@ -247,17 +276,44 @@ impl Client {
             };
         }
     }
+    fn maybe_read_frame(&mut self, timeout: Duration) -> Result<Option<(String, Headers, Vec<u8>)>> {
+        let mut buf = String::new();
+        let start = SystemTime::now();
+        let deadline = start + timeout;
+        while buf.trim().is_empty() {
+            buf.clear();
+            let elapsed = try!(start.elapsed());
+            if elapsed >= timeout {
+                debug!("Timeout expired");
+                return Ok(None)
+            }
+            debug!("Timeout Remaining: {:?}", timeout - elapsed);
+            if let Some(()) = try!(self.read_line(&mut buf, Some(deadline))) {
+                trace!("Read command line: {:?}", buf);
+                assert!(!buf.is_empty());
+            } else {
+                return Ok(None)
+            }
+        }
+        let command = buf.trim().to_string();
+        self.read_frame_headers_body(command).map(Some)
+
+    }
 
     fn read_frame(&mut self) -> Result<(String, Headers, Vec<u8>)> {
         let mut buf = String::new();
         while buf.trim().is_empty() {
             buf.clear();
-            try!(self.read_line(&mut buf));
+            try!(self.read_line(&mut buf, None));
             trace!("Read command line: {:?}", buf);
             assert!(!buf.is_empty());
         }
         let command = buf.trim().to_string();
+        self.read_frame_headers_body(command)
+    }
 
+    fn read_frame_headers_body(&mut self, command: String) -> Result<(String, Headers, Vec<u8>)> {
+        let mut buf = String::new();
         let mut headers = BTreeMap::new();
         loop {
             buf.clear();

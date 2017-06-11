@@ -1,11 +1,12 @@
 extern crate stomping;
 extern crate env_logger;
+#[macro_use]
 extern crate log;
 extern crate uuid;
 
 use stomping::*;
 use uuid::Uuid;
-use std::time::Duration;
+use std::time::{Duration,SystemTime};
 
 #[test]
 fn can_round_trip_text() {
@@ -106,6 +107,27 @@ fn should_allow_acking_individual_messages() {
     client.disconnect().expect("disconnect");
 }
 
+#[test]
+fn should_allow_timeout_on_consume() {
+    env_logger::init().unwrap_or(());
+    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
+    let queue = format!("/queue/client_acks_should_allow_redelivery-{}", Uuid::new_v4());
+
+    client.subscribe(&queue, "one", AckMode::ClientIndividual).expect("subscribe");
+    let timeout = Duration::from_millis(500);
+    let cons_start = SystemTime::now();
+    debug!("Starting consume at {:?}", cons_start);
+    let resp = client.maybe_consume_next(timeout).expect("consume_next");
+    let duration = cons_start.elapsed().expect("elapsed");
+    debug!("consume done in {:?}", duration);
+    assert!(resp.is_none());
+    assert!(duration >= timeout);
+
+    client.publish(&queue, b"first").expect("publish");
+    let resp = client.maybe_consume_next(timeout).expect("consume_next");
+    let (_headers, msg) = resp.expect("a message");
+    assert_eq!(msg, b"first");
+}
 // This test never actually terminates.
 #[test]
 #[ignore]

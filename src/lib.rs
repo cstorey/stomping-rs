@@ -22,6 +22,9 @@ pub enum AckMode {
     ClientIndividual,
 }
 
+const EPSILON: Duration = Duration::from_micros(1);
+const ZERO: Duration = Duration::from_micros(0);
+
 impl AckMode {
     fn as_str(&self) -> &'static str {
         match self {
@@ -390,20 +393,24 @@ impl PaceMaker {
 
     fn read_timeout(&self, now: SystemTime) -> Option<Duration> {
         trace!("read_timeout:{:?}", self);
-        let default = Duration::from_millis(100);
         let until_read = self.server_to_client.map(|s2c| {
-            let res = (self.last_observed_read + s2c).duration_since(now);
+            let deadline = self.last_observed_read + s2c;
+            let res = deadline.duration_since(now);
+            trace!("deadline:{:?} since {:?} → {:?}", deadline, now, res);
             trace!("s2c timeout:{:?}; due in {:?}", s2c, res);
-            res.unwrap_or(default) * 2
+            res.map(|d| d * 2).unwrap_or(ZERO)
         });
         let until_write = self.client_to_server.map(|c2s| {
-            let res = (self.last_observed_write + c2s).duration_since(now);
+            let deadline = self.last_observed_write + c2s;
+            let res = deadline.duration_since(now);
+            trace!("deadline:{:?} since {:?} → {:?}", deadline, now, res);
             trace!("c2s timeout:{:?}; due in {:?}", c2s, res);
-            res.unwrap_or(default) / 2
+            res.map(|d| d / 2).unwrap_or(ZERO)
         });
-        let min = until_read.into_iter().chain(until_write.into_iter()).min();
-        debug!("overall due in {:?}", min);
-        return min;
+        debug!("until_read:{:?}; until_write:{:?}", until_read, until_write);
+        let timeout = until_read.into_iter().chain(until_write.into_iter()).min();
+        debug!("overall due in {:?}", timeout);
+        return timeout.map(|t| cmp::max(t, EPSILON));
     }
 
     fn read_observed(&mut self, at: SystemTime) {
@@ -453,7 +460,7 @@ impl PaceMaker {
 #[cfg(test)]
 mod test {
     extern crate env_logger;
-    use super::{decode_header, encode_header, parse_keepalive, BeatAction, PaceMaker};
+    use super::*;
     use std::time::{Duration, SystemTime};
 
     #[test]
@@ -604,6 +611,35 @@ mod test {
         assert_eq!(pm.client_to_server, Some(Duration::from_millis(2)));
         assert_eq!(pm.server_to_client, Some(Duration::from_millis(10)));
         assert_eq!(pm.read_timeout(start), Some(Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn pacemaker_read_timeout_should_yield_epsilon_after_timeout() {
+        // Client wants to send/receive heartbeats every 2ms
+        // Server wants to send every 10ms, receive every 2ms.
+        // -> We need to send one every 2ms, we expect one every 10ms.
+        // So if we don't see any reads after 2ms, wakeup and send frame.
+        env_logger::init().unwrap_or(());
+        let start = SystemTime::now();
+        // It's now a _long_ time after the timeouts have expired.
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(2)),
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(2)),
+            start,
+        );
+        println!("pm: {:?}", pm);
+        let now = start + Duration::from_secs(1);
+        let res = pm.read_timeout(now).expect("some finite timeout");
+        println!("read_timeout at {:?}: {:?}", now, res);
+        let max_eps = Duration::from_millis(1);
+        assert!(
+            ZERO < res && res < max_eps,
+            "{:?} < {:?} < {:?}",
+            ZERO,
+            res,
+            max_eps
+        );
     }
 
     #[test]

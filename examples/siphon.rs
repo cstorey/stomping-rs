@@ -1,22 +1,32 @@
-extern crate stomping;
 extern crate env_logger;
+extern crate stomping;
 #[macro_use]
 extern crate clap;
 extern crate url;
 
 use std::time::Duration;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 use url::Url;
 
 use stomping::*;
 
-fn main(){
+fn main() {
     let matches = App::new("listener")
         .version("?")
         .author("Ceri Storey")
-        .arg(Arg::with_name("url").help("Target url").index(1).required(true))
-        .arg(Arg::with_name("heartbeat").short("k").help("Heartbeat interval in seconds").takes_value(true))
+        .arg(
+            Arg::with_name("url")
+                .help("Target url")
+                .index(1)
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("heartbeat")
+                .short("k")
+                .help("Heartbeat interval in seconds")
+                .takes_value(true),
+        )
         .get_matches();
 
     env_logger::init().expect("init-logger");
@@ -35,13 +45,13 @@ fn main(){
     let creds = url.password().map(|p| (url.username(), p));
     let mut client = Client::connect(addr, creds, heartbeat).expect("connect");
 
-    client.subscribe(url.path(), "0", AckMode::Auto).expect("subscribe");
+    client
+        .subscribe(url.path(), "0", AckMode::Auto)
+        .expect("subscribe");
 
     loop {
         let (headers, msg) = client.consume_next().expect("consume_next");
         println!("{:?}", headers);
         println!("{:?}", String::from_utf8_lossy(&msg));
     }
-
 }
-

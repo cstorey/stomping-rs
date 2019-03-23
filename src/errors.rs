@@ -1,6 +1,6 @@
-use std::{io, num};
 use std::collections::BTreeMap;
 use std::time;
+use std::{io, num};
 
 error_chain! (
     foreign_links {

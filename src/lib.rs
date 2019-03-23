@@ -2,11 +2,11 @@
 extern crate error_chain;
 #[macro_use]
 extern crate log;
-use std::collections::BTreeMap;
-use std::net::{TcpStream, ToSocketAddrs};
-use std::io::{self, BufWriter, BufReader, BufRead, Write, Read};
-use std::time::{Duration, SystemTime};
 use std::cmp;
+use std::collections::BTreeMap;
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::{Duration, SystemTime};
 
 mod errors;
 use errors::*;
@@ -50,22 +50,18 @@ fn decode_header(s: &str) -> String {
     let mut it = s.chars();
     while let Some(c) = it.next() {
         match c {
-            '\\' => {
-                match it.next() {
-                    Some('r') => out.push('\r'),
-                    Some('n') => out.push('\n'),
-                    Some('c') => out.push(':'),
-                    Some('\\') => out.push('\\'),
-                    other => warn!("Unrecognised escape: \\{:?}", other),
-                }
-            }
+            '\\' => match it.next() {
+                Some('r') => out.push('\r'),
+                Some('n') => out.push('\n'),
+                Some('c') => out.push(':'),
+                Some('\\') => out.push('\\'),
+                other => warn!("Unrecognised escape: \\{:?}", other),
+            },
             c => out.push(c),
         }
     }
     out
 }
-
-
 
 pub type Headers = BTreeMap<String, String>;
 
@@ -73,10 +69,10 @@ fn parse_keepalive(headervalue: Option<&str>) -> Result<(Option<Duration>, Optio
     if let Some(sxsy) = headervalue {
         info!("heartbeat: theirs:{:?}", sxsy);
         let mut it = sxsy.trim().splitn(2, ',');
-        let sx = Duration::from_millis(try!(try!(it.next().ok_or(ErrorKind::ProtocolError))
-            .parse()));
-        let sy = Duration::from_millis(try!(try!(it.next().ok_or(ErrorKind::ProtocolError))
-            .parse()));
+        let sx =
+            Duration::from_millis(try!(try!(it.next().ok_or(ErrorKind::ProtocolError)).parse()));
+        let sy =
+            Duration::from_millis(try!(try!(it.next().ok_or(ErrorKind::ProtocolError)).parse()));
         info!("heartbeat: theirs:{:?}", (&sx, &sy));
 
         Ok((some_non_zero(sx), some_non_zero(sy)))
@@ -93,12 +89,12 @@ fn some_non_zero(dur: Duration) -> Option<Duration> {
     }
 }
 
-
 impl Client {
-    pub fn connect<A: ToSocketAddrs>(a: A,
-                                     credentials: Option<(&str, &str)>,
-                                     keepalive: Option<Duration>)
-                                     -> Result<Self> {
+    pub fn connect<A: ToSocketAddrs>(
+        a: A,
+        credentials: Option<(&str, &str)>,
+        keepalive: Option<Duration>,
+    ) -> Result<Self> {
         let start = SystemTime::now();
         let wr = try!(TcpStream::connect(a));
         debug!("connected to: {:?}", try!(wr.peer_addr()));
@@ -140,9 +136,9 @@ impl Client {
 
     fn reset_timeouts(&mut self, deadline: Option<SystemTime>) -> Result<()> {
         let now = SystemTime::now();
-        let remaining = deadline.and_then(|dl| dl.duration_since( now).ok());
+        let remaining = deadline.and_then(|dl| dl.duration_since(now).ok());
         debug!("#reset_timeouts: remaining: {:?}", remaining);
-        let timeout = match(remaining, self.pace.read_timeout(now)) {
+        let timeout = match (remaining, self.pace.read_timeout(now)) {
             (Some(t), Some(rt)) => Some(cmp::min(t, rt)),
             (Some(t), None) => Some(t),
             (None, Some(rt)) => Some(rt),
@@ -176,7 +172,6 @@ impl Client {
         try!(self.send("ACK", h, &[]));
         Ok(())
     }
-
 
     pub fn consume_next(&mut self) -> Result<(Headers, Vec<u8>)> {
         let (cmd, hdrs, body) = try!(self.read_frame());
@@ -218,15 +213,20 @@ impl Client {
         Ok(())
     }
 
-    fn send(&mut self,
-            command: &str,
-            headers: BTreeMap<String, String>,
-            body: &[u8])
-            -> Result<()> {
-
+    fn send(
+        &mut self,
+        command: &str,
+        headers: BTreeMap<String, String>,
+        body: &[u8],
+    ) -> Result<()> {
         try!(writeln!(self.wr, "{}", command));
         for (k, v) in headers {
-            try!(writeln!(self.wr, "{}:{}", encode_header(&k), encode_header(&v)));
+            try!(writeln!(
+                self.wr,
+                "{}:{}",
+                encode_header(&k),
+                encode_header(&v)
+            ));
         }
         try!(writeln!(self.wr, ""));
 
@@ -242,7 +242,7 @@ impl Client {
         loop {
             let deadline_passed = timeout.map(|to| to <= SystemTime::now()).unwrap_or(false);
             if deadline_passed {
-                return Ok(None)
+                return Ok(None);
             }
 
             try!(self.reset_timeouts(timeout));
@@ -276,7 +276,10 @@ impl Client {
             };
         }
     }
-    fn maybe_read_frame(&mut self, timeout: Duration) -> Result<Option<(String, Headers, Vec<u8>)>> {
+    fn maybe_read_frame(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<(String, Headers, Vec<u8>)>> {
         let mut buf = String::new();
         let start = SystemTime::now();
         let deadline = start + timeout;
@@ -285,19 +288,18 @@ impl Client {
             let elapsed = try!(start.elapsed());
             if elapsed >= timeout {
                 debug!("Timeout expired");
-                return Ok(None)
+                return Ok(None);
             }
             debug!("Timeout Remaining: {:?}", timeout - elapsed);
             if let Some(()) = try!(self.read_line(&mut buf, Some(deadline))) {
                 trace!("Read command line: {:?}", buf);
                 assert!(!buf.is_empty());
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
         let command = buf.trim().to_string();
         self.read_frame_headers_body(command).map(Some)
-
     }
 
     fn read_frame(&mut self) -> Result<(String, Headers, Vec<u8>)> {
@@ -349,8 +351,6 @@ impl Client {
     }
 }
 
-
-
 #[derive(Debug, Clone)]
 struct PaceMaker {
     client_to_server: Option<Duration>,
@@ -359,7 +359,7 @@ struct PaceMaker {
     last_observed_write: SystemTime,
 }
 
-#[derive(Debug, Clone, PartialEq,Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum BeatAction {
     Retry,
     PeerFailed,
@@ -367,16 +367,16 @@ enum BeatAction {
 }
 
 impl PaceMaker {
-    fn new(keepalive: Option<Duration>,
-           sx: Option<Duration>,
-           sy: Option<Duration>,
-           now: SystemTime)
-           -> Self {
-        debug!("heart-beat: cx, cy:{:?}; server-transmit:{:?}; server-receive:{:?}; now:{:?}",
-               keepalive,
-               sx,
-               sy,
-               now);
+    fn new(
+        keepalive: Option<Duration>,
+        sx: Option<Duration>,
+        sy: Option<Duration>,
+        now: SystemTime,
+    ) -> Self {
+        debug!(
+            "heart-beat: cx, cy:{:?}; server-transmit:{:?}; server-receive:{:?}; now:{:?}",
+            keepalive, sx, sy, now
+        );
         let client_to_server = sy.and_then(|sy| keepalive.map(|cx| cmp::max(cx, sy)));
         let server_to_client = sx.and_then(|sx| keepalive.map(|cy| cmp::max(cy, sx)));
 
@@ -391,18 +391,16 @@ impl PaceMaker {
     fn read_timeout(&self, now: SystemTime) -> Option<Duration> {
         trace!("read_timeout:{:?}", self);
         let default = Duration::from_millis(100);
-        let until_read = self.server_to_client
-            .map(|s2c| {
-                let res = (self.last_observed_read + s2c).duration_since(now);
-                trace!("s2c timeout:{:?}; due in {:?}", s2c, res);
-                res.unwrap_or(default) * 2
-            });
-        let until_write = self.client_to_server
-            .map(|c2s| {
-                let res = (self.last_observed_write + c2s).duration_since(now);
-                trace!("c2s timeout:{:?}; due in {:?}", c2s, res);
-                res.unwrap_or(default) / 2
-            });
+        let until_read = self.server_to_client.map(|s2c| {
+            let res = (self.last_observed_read + s2c).duration_since(now);
+            trace!("s2c timeout:{:?}; due in {:?}", s2c, res);
+            res.unwrap_or(default) * 2
+        });
+        let until_write = self.client_to_server.map(|c2s| {
+            let res = (self.last_observed_write + c2s).duration_since(now);
+            trace!("c2s timeout:{:?}; due in {:?}", c2s, res);
+            res.unwrap_or(default) / 2
+        });
         let min = until_read.into_iter().chain(until_write.into_iter()).min();
         debug!("overall due in {:?}", min);
         return min;
@@ -421,10 +419,10 @@ impl PaceMaker {
         debug!("handle_read_timeout: {:?} at {:?}", self, &at);
         if let (mark, Some(interval)) = (self.last_observed_write, self.client_to_server) {
             let duration = try!(at.duration_since(mark));
-            debug!("consider sending heartbeat after: {:?} - {:?} -> {:?}",
-                   mark,
-                   at,
-                   duration);
+            debug!(
+                "consider sending heartbeat after: {:?} - {:?} -> {:?}",
+                mark, at, duration
+            );
             if duration >= interval {
                 debug!("Should send beat");
                 return Ok(BeatAction::SendClientHeart);
@@ -433,10 +431,10 @@ impl PaceMaker {
 
         if let (mark, Some(interval)) = (self.last_observed_read, self.server_to_client) {
             let duration = try!(at.duration_since(mark));
-            debug!("considering if alive after: {:?} - {:?} -> {:?}",
-                   mark,
-                   at,
-                   duration);
+            debug!(
+                "considering if alive after: {:?} - {:?} -> {:?}",
+                mark, at, duration
+            );
             if duration < interval * 2 {
                 debug!("Should retry");
                 Ok(BeatAction::Retry)
@@ -452,35 +450,38 @@ impl PaceMaker {
     }
 }
 
-
-
 #[cfg(test)]
 mod test {
     extern crate env_logger;
-    use super::{parse_keepalive, encode_header, decode_header, PaceMaker, BeatAction};
-    use std::time::{SystemTime, Duration};
+    use super::{decode_header, encode_header, parse_keepalive, BeatAction, PaceMaker};
+    use std::time::{Duration, SystemTime};
 
     #[test]
     fn keepalives_parse_zero_as_none_0() {
         env_logger::init().unwrap_or(());
-        assert_eq!(parse_keepalive(Some("0,0")).expect("parse_keepalive"),
-                   (None, None));
+        assert_eq!(
+            parse_keepalive(Some("0,0")).expect("parse_keepalive"),
+            (None, None)
+        );
     }
 
     #[test]
     fn keepalives_parse_zero_as_none_1() {
         env_logger::init().unwrap_or(());
-        assert_eq!(parse_keepalive(Some("0,42")).expect("parse_keepalive"),
-                   (None, Some(Duration::from_millis(42))));
+        assert_eq!(
+            parse_keepalive(Some("0,42")).expect("parse_keepalive"),
+            (None, Some(Duration::from_millis(42)))
+        );
     }
 
     #[test]
     fn keepalives_parse_zero_as_none_2() {
         env_logger::init().unwrap_or(());
-        assert_eq!(parse_keepalive(Some("42,0")).expect("parse_keepalive"),
-                   (Some(Duration::from_millis(42)), None));
+        assert_eq!(
+            parse_keepalive(Some("42,0")).expect("parse_keepalive"),
+            (Some(Duration::from_millis(42)), None)
+        );
     }
-
 
     #[test]
     fn pacemaker_blah_blah_blah() {
@@ -505,10 +506,12 @@ mod test {
     fn pacemaker_read_timeout_max_of_ours_and_server_send_rate_times_two() {
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let pm = PaceMaker::new(Some(Duration::from_millis(20)),
-                                Some(Duration::from_millis(10)),
-                                None,
-                                start);
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(20)),
+            Some(Duration::from_millis(10)),
+            None,
+            start,
+        );
         println!("pm: {:?}", pm);
         println!("read_timeout: {:?}", pm.read_timeout(start));
         assert_eq!(pm.read_timeout(start), Some(Duration::from_millis(40)));
@@ -518,10 +521,12 @@ mod test {
     fn pacemaker_read_timeout_max_of_ours_and_server_send_rate_times_two_2() {
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let pm = PaceMaker::new(Some(Duration::from_millis(20)),
-                                Some(Duration::from_millis(30)),
-                                None,
-                                start);
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(20)),
+            Some(Duration::from_millis(30)),
+            None,
+            start,
+        );
         println!("pm: {:?}", pm);
         println!("read_timeout: {:?}", pm.read_timeout(start));
         assert_eq!(pm.read_timeout(start), Some(Duration::from_millis(60)));
@@ -531,10 +536,12 @@ mod test {
     fn pacemaker_read_timeout_should_be_half_client_heartbeat() {
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let pm = PaceMaker::new(Some(Duration::from_millis(10)),
-                                None,
-                                Some(Duration::from_millis(30)),
-                                start);
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(10)),
+            None,
+            Some(Duration::from_millis(30)),
+            start,
+        );
         println!("pm: {:?}", pm);
         println!("read_timeout: {:?}", pm.read_timeout(start));
         assert_eq!(pm.read_timeout(start), Some(Duration::from_millis(15)));
@@ -548,10 +555,12 @@ mod test {
         // -> We need to send one every 30ms, we expect one every 10ms.
         // So if we don't see any reads after 20ms, we consider the peer dead.
         let start = SystemTime::now();
-        let pm = PaceMaker::new(Some(Duration::from_millis(10)),
-                                Some(Duration::from_millis(10)),
-                                Some(Duration::from_millis(30)),
-                                start);
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(30)),
+            start,
+        );
         println!("pm: {:?}", pm);
         println!("read_timeout: {:?}", pm.read_timeout(start));
         assert_eq!(pm.client_to_server, Some(Duration::from_millis(30)));
@@ -563,10 +572,12 @@ mod test {
     fn pacemaker_read_timeout_should_be_min_of_client_and_twice_server_heartbeat_2() {
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let pm = PaceMaker::new(Some(Duration::from_millis(10)),
-                                Some(Duration::from_millis(10)),
-                                Some(Duration::from_millis(2)),
-                                start);
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(2)),
+            start,
+        );
         println!("pm: {:?}", pm);
         println!("read_timeout: {:?}", pm.read_timeout(start));
         assert_eq!(pm.client_to_server, Some(Duration::from_millis(10)));
@@ -582,10 +593,12 @@ mod test {
         // So if we don't see any reads after 2ms, wakeup and send frame.
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let pm = PaceMaker::new(Some(Duration::from_millis(2)),
-                                Some(Duration::from_millis(10)),
-                                Some(Duration::from_millis(2)),
-                                start);
+        let pm = PaceMaker::new(
+            Some(Duration::from_millis(2)),
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(2)),
+            start,
+        );
         println!("pm: {:?}", pm);
         println!("read_timeout: {:?}", pm.read_timeout(start));
         assert_eq!(pm.client_to_server, Some(Duration::from_millis(2)));
@@ -597,36 +610,47 @@ mod test {
     fn pacemaker_should_yield_failure_after_twice_server_heartbeat_interval() {
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let mut pm = PaceMaker::new(Some(Duration::from_millis(10)),
-                                    Some(Duration::from_millis(10)),
-                                    None,
-                                    start);
+        let mut pm = PaceMaker::new(
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(10)),
+            None,
+            start,
+        );
         pm.read_observed(start);
-        assert_eq!(pm.handle_read_timeout(start + Duration::from_millis(19))
-                       .expect("handle_read_timeout"),
-                   BeatAction::Retry);
-        assert_eq!(pm.handle_read_timeout(start + Duration::from_millis(20))
-                       .expect("handle_read_timeout"),
-                   BeatAction::PeerFailed);
+        assert_eq!(
+            pm.handle_read_timeout(start + Duration::from_millis(19))
+                .expect("handle_read_timeout"),
+            BeatAction::Retry
+        );
+        assert_eq!(
+            pm.handle_read_timeout(start + Duration::from_millis(20))
+                .expect("handle_read_timeout"),
+            BeatAction::PeerFailed
+        );
     }
 
     #[test]
     fn pacemaker_should_yield_client_heartbeat_after_client_heartbeat_interval() {
         env_logger::init().unwrap_or(());
         let start = SystemTime::now();
-        let mut pm = PaceMaker::new(Some(Duration::from_millis(10)),
-                                    None,
-                                    Some(Duration::from_millis(10)),
-                                    start);
+        let mut pm = PaceMaker::new(
+            Some(Duration::from_millis(10)),
+            None,
+            Some(Duration::from_millis(10)),
+            start,
+        );
         pm.write_observed(start);
-        assert_eq!(pm.handle_read_timeout(start + Duration::from_millis(9))
-                       .expect("handle_read_timeout"),
-                   BeatAction::Retry);
-        assert_eq!(pm.handle_read_timeout(start + Duration::from_millis(10))
-                       .expect("handle_read_timeout"),
-                   BeatAction::SendClientHeart);
+        assert_eq!(
+            pm.handle_read_timeout(start + Duration::from_millis(9))
+                .expect("handle_read_timeout"),
+            BeatAction::Retry
+        );
+        assert_eq!(
+            pm.handle_read_timeout(start + Duration::from_millis(10))
+                .expect("handle_read_timeout"),
+            BeatAction::SendClientHeart
+        );
     }
-
 
     #[test]
     fn can_encode_headers_correctly() {

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 #[test]
 fn can_round_trip_text() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let body = b"42";
@@ -29,7 +29,7 @@ fn can_round_trip_text() {
 
 #[test]
 fn can_round_trip_binary_blobs() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let body = b"\x00\x01\x02\x03";
@@ -47,7 +47,7 @@ fn can_round_trip_binary_blobs() {
 
 #[test]
 fn client_acks_should_allow_redelivery() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let body = b"42";
@@ -79,7 +79,7 @@ fn client_acks_should_allow_redelivery() {
 
 #[test]
 fn can_encode_headers_correctly() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let body = b"42";
@@ -98,7 +98,7 @@ fn can_encode_headers_correctly() {
 
 #[test]
 fn should_allow_acking_individual_messages() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let queue = format!(
@@ -136,7 +136,7 @@ fn should_allow_acking_individual_messages() {
 
 #[test]
 fn should_allow_timeout_on_consume() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let queue = format!(
@@ -165,7 +165,7 @@ fn should_allow_timeout_on_consume() {
 #[test]
 #[ignore]
 fn thing_to_test_timeouts() {
-    env_logger::init().unwrap_or(());
+    env_logger::try_init().unwrap_or_default();
     let mut client = Client::connect(
         ("localhost", 61613),
         Some(("guest", "guest")),

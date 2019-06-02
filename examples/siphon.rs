@@ -29,7 +29,7 @@ fn main() {
         )
         .get_matches();
 
-    env_logger::init().expect("init-logger");
+    env_logger::init();
 
     let url = Url::parse(matches.value_of("url").expect("url parameter")).expect("parsing as URL");
     let heartbeat = if matches.is_present("heartbeat") {

@@ -1,8 +1,4 @@
 use std::collections::BTreeMap;
-use std::time;
-use std::{io, num};
-
-use failure::Context;
 
 #[derive(Clone, Eq, PartialEq, Debug, Fail)]
 pub enum StompError {

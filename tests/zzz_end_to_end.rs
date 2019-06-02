@@ -39,7 +39,7 @@ fn can_round_trip_binary_blobs() {
         .expect("subscribe");
     client.publish(&queue, body).expect("publish");
 
-    let (headers, msg) = client.consume_next().expect("consume_next");
+    let (_headers, msg) = client.consume_next().expect("consume_next");
     assert_eq!(msg, body);
     client.disconnect().expect("disconnect");
 }
@@ -89,7 +89,7 @@ fn can_encode_headers_correctly() {
         .expect("subscribe");
     client.publish(&queue, body).expect("publish");
 
-    let (headers, msg) = client.consume_next().expect("consume_next");
+    let (headers, _msg) = client.consume_next().expect("consume_next");
     println!("h: {:?}", headers);
     assert_eq!(headers["destination"], queue);
     client.disconnect().expect("disconnect");

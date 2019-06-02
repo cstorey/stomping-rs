@@ -3,7 +3,7 @@ extern crate failure;
 extern crate failure_derive;
 #[macro_use]
 extern crate log;
-use failure::{Error, Fallible};
+use failure::Fallible;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};

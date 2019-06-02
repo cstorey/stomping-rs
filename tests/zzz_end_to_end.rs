@@ -1,3 +1,4 @@
+#![cfg(not(feature = "skip-end-to-end"))]
 extern crate env_logger;
 extern crate stomping;
 #[macro_use]

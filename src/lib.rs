@@ -3,16 +3,15 @@ extern crate failure;
 extern crate failure_derive;
 #[macro_use]
 extern crate log;
+use failure::{Error, Fallible};
 use std::cmp;
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, SystemTime};
-use failure::{Error,Fallible};
 
 mod errors;
 use errors::*;
-
 
 pub struct Client {
     wr: BufWriter<TcpStream>,
@@ -75,10 +74,12 @@ fn parse_keepalive(headervalue: Option<&str>) -> Fallible<(Option<Duration>, Opt
     if let Some(sxsy) = headervalue {
         info!("heartbeat: theirs:{:?}", sxsy);
         let mut it = sxsy.trim().splitn(2, ',');
-        let sx =
-            Duration::from_millis(try!(try!(it.next().ok_or(StompError::ProtocolError)).parse()));
-        let sy =
-            Duration::from_millis(try!(try!(it.next().ok_or(StompError::ProtocolError)).parse()));
+        let sx = Duration::from_millis(try!(
+            try!(it.next().ok_or(StompError::ProtocolError)).parse()
+        ));
+        let sy = Duration::from_millis(try!(
+            try!(it.next().ok_or(StompError::ProtocolError)).parse()
+        ));
         info!("heartbeat: theirs:{:?}", (&sx, &sy));
 
         Ok((some_non_zero(sx), some_non_zero(sy)))
@@ -189,7 +190,10 @@ impl Client {
         Ok((hdrs, body))
     }
 
-    pub fn maybe_consume_next(&mut self, timeout: Duration) -> Fallible<Option<(Headers, Vec<u8>)>> {
+    pub fn maybe_consume_next(
+        &mut self,
+        timeout: Duration,
+    ) -> Fallible<Option<(Headers, Vec<u8>)>> {
         if let Some((cmd, hdrs, body)) = try!(self.maybe_read_frame(timeout)) {
             if &cmd != "MESSAGE" {
                 warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);

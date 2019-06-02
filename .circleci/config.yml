@@ -30,6 +30,7 @@ jobs:
           RUSTFLAGS: -D warnings
     steps:
       - checkout
+      - run: git merge master
       - run: rustup component add rustfmt
       - run: rustfmt --version
       - run: cargo fmt --all -- --check

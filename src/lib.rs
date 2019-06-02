@@ -472,7 +472,7 @@ mod test {
 
     #[test]
     fn keepalives_parse_zero_as_none_0() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         assert_eq!(
             parse_keepalive(Some("0,0")).expect("parse_keepalive"),
             (None, None)
@@ -481,7 +481,7 @@ mod test {
 
     #[test]
     fn keepalives_parse_zero_as_none_1() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         assert_eq!(
             parse_keepalive(Some("0,42")).expect("parse_keepalive"),
             (None, Some(Duration::from_millis(42)))
@@ -490,7 +490,7 @@ mod test {
 
     #[test]
     fn keepalives_parse_zero_as_none_2() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         assert_eq!(
             parse_keepalive(Some("42,0")).expect("parse_keepalive"),
             (Some(Duration::from_millis(42)), None)
@@ -499,7 +499,7 @@ mod test {
 
     #[test]
     fn pacemaker_blah_blah_blah() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(None, None, None, start);
         assert_eq!(pm.read_timeout(start), None);
@@ -507,7 +507,7 @@ mod test {
 
     #[test]
     fn pacemaker_inf_read_timeout_when_server_unsupported() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(Some(Duration::from_millis(20)), None, None, start);
         println!("pm: {:?}", pm);
@@ -518,7 +518,7 @@ mod test {
 
     #[test]
     fn pacemaker_read_timeout_max_of_ours_and_server_send_rate_times_two() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(
             Some(Duration::from_millis(20)),
@@ -533,7 +533,7 @@ mod test {
 
     #[test]
     fn pacemaker_read_timeout_max_of_ours_and_server_send_rate_times_two_2() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(
             Some(Duration::from_millis(20)),
@@ -548,7 +548,7 @@ mod test {
 
     #[test]
     fn pacemaker_read_timeout_should_be_half_client_heartbeat() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(
             Some(Duration::from_millis(10)),
@@ -563,7 +563,7 @@ mod test {
 
     #[test]
     fn pacemaker_read_timeout_should_be_min_of_client_and_twice_server_heartbeat_1() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         // Client wants to send/receive heartbeats every 10ms
         // Server wants to send every 10ms, receive every 30ms.
         // -> We need to send one every 30ms, we expect one every 10ms.
@@ -584,7 +584,7 @@ mod test {
 
     #[test]
     fn pacemaker_read_timeout_should_be_min_of_client_and_twice_server_heartbeat_2() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(
             Some(Duration::from_millis(10)),
@@ -605,7 +605,7 @@ mod test {
         // Server wants to send every 10ms, receive every 2ms.
         // -> We need to send one every 2ms, we expect one every 10ms.
         // So if we don't see any reads after 2ms, wakeup and send frame.
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let pm = PaceMaker::new(
             Some(Duration::from_millis(2)),
@@ -626,7 +626,7 @@ mod test {
         // Server wants to send every 10ms, receive every 2ms.
         // -> We need to send one every 2ms, we expect one every 10ms.
         // So if we don't see any reads after 2ms, wakeup and send frame.
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         // It's now a _long_ time after the timeouts have expired.
         let pm = PaceMaker::new(
@@ -651,7 +651,7 @@ mod test {
 
     #[test]
     fn pacemaker_should_yield_failure_after_twice_server_heartbeat_interval() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let mut pm = PaceMaker::new(
             Some(Duration::from_millis(10)),
@@ -674,7 +674,7 @@ mod test {
 
     #[test]
     fn pacemaker_should_yield_client_heartbeat_after_client_heartbeat_interval() {
-        env_logger::init().unwrap_or(());
+        env_logger::try_init().unwrap_or_default();
         let start = SystemTime::now();
         let mut pm = PaceMaker::new(
             Some(Duration::from_millis(10)),

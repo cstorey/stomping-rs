@@ -2,6 +2,21 @@ use std::collections::BTreeMap;
 use std::time;
 use std::{io, num};
 
+use failure::Context;
+
+#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+pub enum StompError {
+    #[fail(display = "stomp error: {}: {:?}: {:?}", _0, _1, _2)]
+    StompError(String, BTreeMap<String, String>, String),
+    #[fail(display = "Protocol error")]
+    ProtocolError,
+    #[fail(display = "Tried to ack a frame with no `ack` header")]
+    NoAckHeader,
+    #[fail(display = "peer seems to be unresponsive")]
+    PeerFailed ,
+}
+
+#[cfg(never)]
 error_chain! (
     foreign_links {
         io::Error, Io;

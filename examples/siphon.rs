@@ -39,11 +39,13 @@ fn main() {
         None
     };
 
-    let addr = url.with_default_port(|_| Ok(61613)).expect("host-port");
-
     println!("user: {:?}; pass:{:?}", url.username(), url.password());
     let creds = url.password().map(|p| (url.username(), p));
-    let mut client = Client::connect(addr, creds, heartbeat).expect("connect");
+    let hostport = (
+        url.host_str().unwrap_or("localhost"),
+        url.port().unwrap_or(61613),
+    );
+    let mut client = Client::connect(hostport, creds, heartbeat).expect("connect");
 
     client
         .subscribe(url.path(), "0", AckMode::Auto)

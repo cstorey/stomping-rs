@@ -42,6 +42,8 @@ jobs:
       - run: cargo build --all --tests --features skip-end-to-end
       - *SAVE_DEPS
       - run: cargo test --all --features skip-end-to-end
+      - run: sudo ./.circleci/install-rabbitmq.sh
+      - run: cargo test --all
 workflows:
   testall:
     jobs:

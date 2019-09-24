@@ -10,7 +10,7 @@ failure_derive = "0.1.5"
 
 [dev-dependencies]
 clap = "2.10.2"
-env_logger = "0.6.1"
+env_logger = "0.7.0"
 url = "2.0.0"
 uuid = { version = "0.7.4", features = ["v4"] }
 

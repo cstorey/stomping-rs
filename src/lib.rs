@@ -327,6 +327,10 @@ impl Client {
     fn read_frame_headers_body(&mut self, command: String) -> Fallible<(String, Headers, Vec<u8>)> {
         let mut buf = String::new();
         let mut headers = BTreeMap::new();
+
+        // Given we are half way into a frame, we can be reasonably sure that
+        // more data is coming soon, so reset our timeouts.
+        try!(self.reset_timeouts(None));
         loop {
             buf.clear();
             try!(self.rdr.read_line(&mut buf));

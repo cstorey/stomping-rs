@@ -1,14 +1,15 @@
 use std::collections::BTreeMap;
+use thiserror::Error;
 
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, Error)]
 pub enum StompError {
-    #[fail(display = "stomp error: {}: {:?}: {:?}", _0, _1, _2)]
+    #[error("stomp error: {}: {:?}: {:?}", _0, _1, _2)]
     StompError(String, BTreeMap<String, String>, String),
-    #[fail(display = "Protocol error")]
+    #[error("Protocol error")]
     ProtocolError,
-    #[fail(display = "Tried to ack a frame with no `ack` header")]
+    #[error("Tried to ack a frame with no `ack` header")]
     NoAckHeader,
-    #[fail(display = "peer seems to be unresponsive")]
+    #[error("peer seems to be unresponsive")]
     PeerFailed,
 }
 

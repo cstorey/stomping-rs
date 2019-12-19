@@ -1,7 +1,5 @@
 use failure;
 #[macro_use]
-extern crate failure_derive;
-#[macro_use]
 extern crate log;
 use failure::Fallible;
 use std::cmp;

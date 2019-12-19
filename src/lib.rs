@@ -50,6 +50,12 @@ pub struct Frame {
     pub body: Vec<u8>,
 }
 
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub enum FrameOrKeepAlive {
+    Frame(Frame),
+    KeepAlive,
+}
+
 const EPSILON: Duration = Duration::from_micros(1);
 const ZERO: Duration = Duration::from_micros(0);
 
@@ -266,7 +272,7 @@ impl Client {
 
     fn send(&mut self, frame: &Frame) -> Result<()> {
         let mut buf = BytesMut::new();
-        encode_frame(&mut buf, &frame)?;
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame.clone()))?;
 
         self.wr.write_all(&buf)?;
         self.wr.flush()?;
@@ -768,5 +774,14 @@ mod test {
     #[test]
     fn can_decode_headers_correctly() {
         assert_eq!(&decode_header("moo-\\r\\n\\c\\\\-fish"), "moo-\r\n:\\-fish");
+    }
+
+    impl FrameOrKeepAlive {
+        pub(crate) fn unwrap_frame(self) -> Frame {
+            match self {
+                FrameOrKeepAlive::Frame(f) => f,
+                FrameOrKeepAlive::KeepAlive => panic!("Expcted a frame, got keepalive"),
+            }
+        }
     }
 }

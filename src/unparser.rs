@@ -1,9 +1,18 @@
 use bytes::{BufMut, BytesMut};
 
 use crate::errors::*;
-use crate::Frame;
+use crate::{Frame, FrameOrKeepAlive};
 
-pub(crate) fn encode_frame(buf: &mut BytesMut, frame: &Frame) -> Result<()> {
+pub(crate) fn encode_frame(buf: &mut BytesMut, item: &FrameOrKeepAlive) -> Result<()> {
+    match item {
+        FrameOrKeepAlive::Frame(ref frame) => encode_inner(buf, frame)?,
+        FrameOrKeepAlive::KeepAlive => encode_keepalive(buf)?,
+    }
+
+    Ok(())
+}
+
+fn encode_inner(buf: &mut BytesMut, frame: &Frame) -> Result<()> {
     buf.put_slice(frame.command.as_str().as_bytes());
     buf.put_u8(b'\n');
 
@@ -23,6 +32,11 @@ pub(crate) fn encode_frame(buf: &mut BytesMut, frame: &Frame) -> Result<()> {
 
     buf.put_u8(b'\0');
 
+    Ok(())
+}
+
+fn encode_keepalive(buf: &mut BytesMut) -> Result<()> {
+    buf.put_u8(b'\n');
     Ok(())
 }
 
@@ -54,7 +68,7 @@ mod tests {
         };
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\n\n\0",
@@ -71,7 +85,7 @@ mod tests {
         };
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\nhello:world\n\n\0",
@@ -88,7 +102,7 @@ mod tests {
         };
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\nfoo\\cbar:y\n\n\0",
@@ -105,7 +119,7 @@ mod tests {
         };
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\ndestination:/queue/hello\\cworld\n\n\0",
@@ -122,7 +136,7 @@ mod tests {
         };
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\n\\n:y\n\n\0",
@@ -139,7 +153,7 @@ mod tests {
 
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\nx:\\r\n\n\0",
@@ -157,7 +171,7 @@ mod tests {
 
         let mut buf = BytesMut::new();
 
-        let res = encode_frame(&mut buf, &frame);
+        let res = encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame));
 
         assert!(res.is_err(), "Encoding should fail; got: {:?}", res);
     }
@@ -171,12 +185,21 @@ mod tests {
         };
         let mut buf = BytesMut::new();
 
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
             &*"SEND\n\nx\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
+    }
+
+    #[test]
+    fn should_encode_keepalive() {
+        let mut buf = BytesMut::new();
+
+        encode_frame(&mut buf, &FrameOrKeepAlive::KeepAlive).expect("encode frame");
+
+        assert_eq!(&*"\n", std::str::from_utf8(&buf).expect("from utf8"));
     }
 
     #[ignore]
@@ -188,8 +211,11 @@ mod tests {
         property(frames().filter(|frame| !frame.body.contains(&b'\0'))).check(|frame| {
             let mut buf = BytesMut::new();
 
-            encode_frame(&mut buf, &frame).expect("encode frame");
-            let parsed = parse_frame(&mut buf).expect("parse").expect("some frame");
+            encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame.clone())).expect("encode frame");
+            let parsed = parse_frame(&mut buf)
+                .expect("parse")
+                .expect("some frame")
+                .unwrap_frame();
 
             assert_eq!(frame, parsed);
             assert!(
@@ -211,10 +237,13 @@ mod tests {
         println!("Frame: {:?}", frame);
 
         let mut buf = BytesMut::new();
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame.clone())).expect("encode frame");
         println!("Encoded: {:?}", String::from_utf8_lossy(&buf));
 
-        let parsed = parse_frame(&mut buf).expect("parse").expect("some frame");
+        let parsed = parse_frame(&mut buf)
+            .expect("parse")
+            .expect("some frame")
+            .unwrap_frame();
 
         assert_eq!(frame, parsed);
         assert!(
@@ -235,10 +264,13 @@ mod tests {
         println!("Frame: {:?}", frame);
 
         let mut buf = BytesMut::new();
-        encode_frame(&mut buf, &frame).expect("encode frame");
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame.clone())).expect("encode frame");
         println!("Encoded: {:?}", String::from_utf8_lossy(&buf));
 
-        let parsed = parse_frame(&mut buf).expect("parse").expect("some frame");
+        let parsed = parse_frame(&mut buf)
+            .expect("parse")
+            .expect("some frame")
+            .unwrap_frame();
 
         assert_eq!(frame, parsed);
         assert!(

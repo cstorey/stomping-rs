@@ -13,7 +13,7 @@ use nom::{
 use nom::{Err, IResult};
 use thiserror::Error;
 
-use crate::{Command, Frame, Headers};
+use crate::{Command, Frame, FrameOrKeepAlive, Headers};
 
 #[derive(Debug, Error)]
 pub struct ParseError {
@@ -23,8 +23,8 @@ pub struct ParseError {
 }
 
 // See grammar described at https://stomp.github.io/stomp-specification-1.2.html#Augmented_BNF
-pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<Frame>, ParseError> {
-    match parse_inner(input) {
+pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<FrameOrKeepAlive>, ParseError> {
+    match run_parse(input) {
         Ok((remainder, frame)) => {
             let consumed = input.len() - remainder.len();
 
@@ -43,6 +43,19 @@ pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<Frame>, ParseEr
         Err(Err::Error(e)) => return Err(e.into()),
         Err(Err::Failure(e)) => return Err(e.into()),
     }
+}
+
+fn run_parse(input: &[u8]) -> IResult<&[u8], FrameOrKeepAlive> {
+    let p = alt((
+        map(parse_inner, FrameOrKeepAlive::Frame),
+        map(parse_keepalive, |()| FrameOrKeepAlive::KeepAlive),
+    ));
+    p(input)
+}
+
+fn parse_keepalive(input: &[u8]) -> IResult<&[u8], ()> {
+    let (input, _) = newline(input)?;
+    Ok((input, ()))
 }
 
 fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
@@ -162,7 +175,7 @@ mod tests {
         let mut data = BytesMut::from(b"CONNECT\n\n\0" as &[u8]);
 
         let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame");
+        let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Connect);
     }
@@ -174,7 +187,7 @@ mod tests {
         );
 
         let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame");
+        let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Connect);
         assert_eq!(frame.headers.get("login"), Some(&"guest".to_string()));
@@ -185,7 +198,7 @@ mod tests {
         let mut data = BytesMut::from(b"CONNECT\nfoo\\cbar:yes\n\n\0" as &[u8]);
 
         let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame");
+        let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.headers.get("foo:bar"), Some(&"yes".to_string()));
     }
@@ -195,7 +208,7 @@ mod tests {
         let mut data = BytesMut::from(b"CONNECT\nfoo:one\\ctwo\n\n\0" as &[u8]);
 
         let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame");
+        let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.headers.get("foo"), Some(&"one:two".to_string()));
     }
@@ -205,7 +218,7 @@ mod tests {
         let mut data = BytesMut::from(b"SEND\n\nwibble\0" as &[u8]);
 
         let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame");
+        let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Send);
         assert_eq!(&*frame.body, &*b"wibble");
@@ -216,9 +229,19 @@ mod tests {
         let mut data = BytesMut::from(b"SEND\ncontent-length:7\n\nfoo\0bar\0" as &[u8]);
 
         let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame");
+        let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Send);
         assert_eq!(&*frame.body, &*b"foo\0bar");
+    }
+
+    #[test]
+    fn parse_keepalive() {
+        let mut data = BytesMut::from(b"\nstuff" as &[u8]);
+
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"stuff" as &[u8], &data);
+        assert_eq!(FrameOrKeepAlive::KeepAlive, frame);
     }
 }

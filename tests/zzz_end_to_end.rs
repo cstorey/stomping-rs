@@ -79,10 +79,11 @@ fn client_acks_should_allow_redelivery() {
 #[test]
 fn can_encode_headers_correctly() {
     env_logger::try_init().unwrap_or_default();
+    debug!("Connecting");
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
     let body = b"42";
-    let queue = format!("/queue/can_encode_headers_correctly\\:{}", Uuid::new_v4());
+    let queue = format!("/queue/can_encode_headers_correctly:{}", Uuid::new_v4());
 
     client
         .subscribe(&queue, "one", AckMode::Auto)

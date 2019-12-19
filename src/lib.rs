@@ -6,8 +6,11 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, SystemTime};
 
+use bytes::BytesMut;
+
 mod errors;
 use crate::errors::*;
+use crate::unparser::encode_frame;
 
 mod parser;
 mod unparser;
@@ -57,20 +60,6 @@ impl AckMode {
             &AckMode::ClientIndividual => "client-individual",
         }
     }
-}
-
-fn encode_header(s: &str) -> String {
-    let mut out = String::new();
-    for c in s.chars() {
-        match c {
-            '\r' => out.push_str("\\r"),
-            '\n' => out.push_str("\\n"),
-            '\\' => out.push_str("\\\\"),
-            ':' => out.push_str("\\c"),
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 fn decode_header(s: &str) -> String {
@@ -141,8 +130,14 @@ impl Client {
             conn_headers.insert("login".to_string(), user.to_string());
             conn_headers.insert("passcode".to_string(), pass.to_string());
         }
-        client.send(Command::Connect, conn_headers, &[])?;
+        trace!("Sending connect frame");
+        client.send(&Frame {
+            command: Command::Connect,
+            headers: conn_headers,
+            body: vec![],
+        })?;
 
+        trace!("Awaiting connected frame");
         let frame = client.read_frame()?;
         if frame.command == Command::Error {
             warn!(
@@ -186,21 +181,33 @@ impl Client {
         h.insert("destination".to_string(), destination.to_string());
         h.insert("id".to_string(), id.to_string());
         h.insert("ack".to_string(), mode.as_str().to_string());
-        self.send(Command::Subscribe, h, b"")?;
+        self.send(&Frame {
+            command: Command::Subscribe,
+            headers: h,
+            body: Vec::new(),
+        })?;
         Ok(())
     }
     pub fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("content-length".to_string(), format!("{}", body.len()));
-        self.send(Command::Send, h, body)?;
+        self.send(&Frame {
+            command: Command::Send,
+            headers: h,
+            body: body.into(),
+        })?;
         Ok(())
     }
     pub fn ack(&mut self, headers: &Headers) -> Result<()> {
         let mut h = BTreeMap::new();
         let mid = headers.get("ack").ok_or(StompError::NoAckHeader)?;
         h.insert("id".to_string(), mid.to_string());
-        self.send(Command::Ack, h, &[])?;
+        self.send(&Frame {
+            command: Command::Ack,
+            headers: h,
+            body: Vec::new(),
+        })?;
         Ok(())
     }
 
@@ -236,7 +243,11 @@ impl Client {
     pub fn disconnect(mut self) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("receipt".to_string(), "42".to_string());
-        self.send(Command::Disconnect, h, b"")?;
+        self.send(&Frame {
+            command: Command::Disconnect,
+            headers: h,
+            body: Vec::new(),
+        })?;
 
         loop {
             let frame = self.read_frame()?;
@@ -253,21 +264,14 @@ impl Client {
         Ok(())
     }
 
-    fn send(
-        &mut self,
-        command: Command,
-        headers: BTreeMap<String, String>,
-        body: &[u8],
-    ) -> Result<()> {
-        writeln!(self.wr, "{}", command.as_str())?;
-        for (k, v) in headers {
-            writeln!(self.wr, "{}:{}", encode_header(&k), encode_header(&v))?;
-        }
-        writeln!(self.wr, "")?;
+    fn send(&mut self, frame: &Frame) -> Result<()> {
+        let mut buf = BytesMut::new();
+        encode_frame(&mut buf, &frame)?;
 
-        self.wr.write_all(body)?;
-        self.wr.write(b"\0")?;
+        self.wr.write_all(&buf)?;
         self.wr.flush()?;
+        trace!("Wrote {} bytes", buf.len());
+
         self.pace.write_observed(SystemTime::now());
         self.reset_timeouts(None)?;
         Ok(())
@@ -759,12 +763,6 @@ mod test {
                 .expect("handle_read_timeout"),
             BeatAction::SendClientHeart
         );
-    }
-
-    #[test]
-    fn can_encode_headers_correctly() {
-        assert_eq!(&encode_header("\r\n:\\"), "\\r\\n\\c\\\\");
-        assert_eq!(&encode_header("foobar"), "foobar")
     }
 
     #[test]

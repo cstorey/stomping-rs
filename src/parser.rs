@@ -161,6 +161,7 @@ mod tests {
         assert_eq!(b"", remainder);
         assert_eq!(frame.headers.get("foo:bar"), Some(&"yes".to_string()));
     }
+
     #[test]
     fn parse_colon_in_header_value() {
         let data = b"CONNECT\nfoo:one\\ctwo\n\n\0";

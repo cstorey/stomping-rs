@@ -1,8 +1,8 @@
-extern crate env_logger;
-extern crate stomping;
+use env_logger;
+
 #[macro_use]
 extern crate clap;
-extern crate url;
+
 
 use std::time::Duration;
 

@@ -1,4 +1,4 @@
-extern crate failure;
+use failure;
 #[macro_use]
 extern crate failure_derive;
 #[macro_use]
@@ -461,7 +461,7 @@ impl PaceMaker {
 
 #[cfg(test)]
 mod test {
-    extern crate env_logger;
+    use env_logger;
     use super::*;
     use std::time::{Duration, SystemTime};
 

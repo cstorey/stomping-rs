@@ -1,9 +1,8 @@
 #![cfg(not(feature = "skip-end-to-end"))]
-extern crate env_logger;
-extern crate stomping;
+use env_logger;
+
 #[macro_use]
 extern crate log;
-extern crate uuid;
 
 use std::time::{Duration, SystemTime};
 use stomping::*;

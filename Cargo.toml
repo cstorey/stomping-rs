@@ -2,11 +2,12 @@
 authors = ["Ceri Storey <ceri@lshift.net>"]
 name = "stomping"
 version = "0.1.0"
+edition = "2018"
 
 [dependencies]
 log = "0.4.6"
 failure = "0.1.5"
-failure_derive = "0.1.5"
+thiserror = "1.0.9"
 
 [dev-dependencies]
 clap = "2.10.2"

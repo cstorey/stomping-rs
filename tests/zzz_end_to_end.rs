@@ -1,5 +1,6 @@
 #![cfg(not(feature = "skip-end-to-end"))]
 use env_logger;
+use tokio;
 
 #[macro_use]
 extern crate log;
@@ -8,8 +9,8 @@ use std::time::{Duration, SystemTime};
 use stomping::*;
 use uuid::Uuid;
 
-#[test]
-fn can_round_trip_text() {
+#[tokio::test]
+async fn can_round_trip_text() {
     env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
@@ -26,8 +27,8 @@ fn can_round_trip_text() {
     client.disconnect().expect("disconnect");
 }
 
-#[test]
-fn can_round_trip_binary_blobs() {
+#[tokio::test]
+async fn can_round_trip_binary_blobs() {
     env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
@@ -44,8 +45,8 @@ fn can_round_trip_binary_blobs() {
     client.disconnect().expect("disconnect");
 }
 
-#[test]
-fn client_acks_should_allow_redelivery() {
+#[tokio::test]
+async fn client_acks_should_allow_redelivery() {
     env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
@@ -76,8 +77,8 @@ fn client_acks_should_allow_redelivery() {
     client.disconnect().expect("disconnect");
 }
 
-#[test]
-fn can_encode_headers_correctly() {
+#[tokio::test]
+async fn can_encode_headers_correctly() {
     env_logger::try_init().unwrap_or_default();
     debug!("Connecting");
     let mut client =
@@ -96,8 +97,8 @@ fn can_encode_headers_correctly() {
     client.disconnect().expect("disconnect");
 }
 
-#[test]
-fn should_allow_acking_individual_messages() {
+#[tokio::test]
+async fn should_allow_acking_individual_messages() {
     env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
@@ -134,8 +135,8 @@ fn should_allow_acking_individual_messages() {
     client.disconnect().expect("disconnect");
 }
 
-#[test]
-fn should_allow_timeout_on_consume() {
+#[tokio::test]
+async fn should_allow_timeout_on_consume() {
     env_logger::try_init().unwrap_or_default();
     let mut client =
         Client::connect(("localhost", 61613), Some(("guest", "guest")), None).expect("connect");
@@ -162,9 +163,9 @@ fn should_allow_timeout_on_consume() {
     assert_eq!(frame.body, b"first");
 }
 // This test never actually terminates.
-#[test]
+#[tokio::test]
 #[ignore]
-fn thing_to_test_timeouts() {
+async fn thing_to_test_timeouts() {
     env_logger::try_init().unwrap_or_default();
     let mut client = Client::connect(
         ("localhost", 61613),

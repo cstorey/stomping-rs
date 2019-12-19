@@ -51,8 +51,8 @@ fn main() {
         .expect("subscribe");
 
     loop {
-        let (headers, msg) = client.consume_next().expect("consume_next");
-        println!("{:?}", headers);
-        println!("{:?}", String::from_utf8_lossy(&msg));
+        let frame = client.consume_next().expect("consume_next");
+        println!("{:?}", frame.headers);
+        println!("{:?}", String::from_utf8_lossy(&frame.body));
     }
 }

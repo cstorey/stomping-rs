@@ -21,8 +21,8 @@ fn can_round_trip_text() {
         .expect("subscribe");
     client.publish(&queue, body).expect("publish");
 
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, body);
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(&*body, &*frame.body);
     client.disconnect().expect("disconnect");
 }
 
@@ -39,8 +39,8 @@ fn can_round_trip_binary_blobs() {
         .expect("subscribe");
     client.publish(&queue, body).expect("publish");
 
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, body);
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, body);
     client.disconnect().expect("disconnect");
 }
 
@@ -60,8 +60,8 @@ fn client_acks_should_allow_redelivery() {
         .expect("subscribe");
     client.publish(&queue, body).expect("publish");
 
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, body);
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, body);
 
     // Disconnect
     drop(client);
@@ -71,8 +71,8 @@ fn client_acks_should_allow_redelivery() {
     client
         .subscribe(&queue, "one", AckMode::ClientIndividual)
         .expect("subscribe");
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, body);
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, body);
     client.disconnect().expect("disconnect");
 }
 
@@ -89,9 +89,9 @@ fn can_encode_headers_correctly() {
         .expect("subscribe");
     client.publish(&queue, body).expect("publish");
 
-    let (headers, _msg) = client.consume_next().expect("consume_next");
-    println!("h: {:?}", headers);
-    assert_eq!(headers["destination"], queue);
+    let frame = client.consume_next().expect("consume_next");
+    println!("h: {:?}", frame.headers);
+    assert_eq!(frame.headers["destination"], queue);
     client.disconnect().expect("disconnect");
 }
 
@@ -112,11 +112,11 @@ fn should_allow_acking_individual_messages() {
     client.publish(&queue, b"second").expect("publish");
     client.publish(&queue, b"third").expect("publish");
 
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, b"first");
-    let (headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, b"second");
-    client.ack(&headers).expect("ack");
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, b"first");
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, b"second");
+    client.ack(&frame.headers).expect("ack");
 
     // Disconnect
     drop(client);
@@ -126,10 +126,10 @@ fn should_allow_acking_individual_messages() {
     client
         .subscribe(&queue, "one", AckMode::ClientIndividual)
         .expect("subscribe");
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, b"first");
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, b"third");
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, b"first");
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, b"third");
     client.disconnect().expect("disconnect");
 }
 
@@ -157,8 +157,8 @@ fn should_allow_timeout_on_consume() {
 
     client.publish(&queue, b"first").expect("publish");
     let resp = client.maybe_consume_next(timeout).expect("consume_next");
-    let (_headers, msg) = resp.expect("a message");
-    assert_eq!(msg, b"first");
+    let frame = resp.expect("a message");
+    assert_eq!(frame.body, b"first");
 }
 // This test never actually terminates.
 #[test]
@@ -177,7 +177,7 @@ fn thing_to_test_timeouts() {
         .subscribe(&queue, "one", AckMode::ClientIndividual)
         .expect("subscribe");
 
-    let (_headers, msg) = client.consume_next().expect("consume_next");
-    assert_eq!(msg, b"first");
+    let frame = client.consume_next().expect("consume_next");
+    assert_eq!(frame.body, b"first");
     client.disconnect().expect("disconnect");
 }

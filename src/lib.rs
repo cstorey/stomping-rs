@@ -20,6 +20,13 @@ pub enum AckMode {
     ClientIndividual,
 }
 
+#[derive(Clone, Debug, Hash)]
+pub struct Frame {
+    pub command: String,
+    pub headers: Headers,
+    pub body: Vec<u8>,
+}
+
 const EPSILON: Duration = Duration::from_micros(1);
 const ZERO: Duration = Duration::from_micros(0);
 
@@ -116,17 +123,23 @@ impl Client {
         }
         client.send("CONNECT", conn_headers, &[])?;
 
-        let (cmd, hdrs, body) = client.read_frame()?;
-        if &cmd == "ERROR" {
-            let body = String::from_utf8_lossy(&body).into_owned();
-            warn!("Error response from server: {:?}: {:?}", cmd, hdrs);
-            return Err(StompError::StompError(cmd, hdrs, body).into());
-        } else if &cmd != "CONNECTED" {
-            warn!("Bad response from server: {:?}: {:?}", cmd, hdrs);
+        let frame = client.read_frame()?;
+        if &frame.command == "ERROR" {
+            let body = String::from_utf8_lossy(&frame.body).into_owned();
+            warn!(
+                "Error response from server: {:?}: {:?}",
+                frame.command, frame.headers
+            );
+            return Err(StompError::StompError(frame).into());
+        } else if &frame.command != "CONNECTED" {
+            warn!(
+                "Bad response from server: {:?}: {:?}",
+                frame.command, frame.headers
+            );
             return Err(StompError::ProtocolError.into());
         }
 
-        let (sx, sy) = parse_keepalive(hdrs.get("heart-beat").map(|s| &**s))?;
+        let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat").map(|s| &**s))?;
         client.pace = PaceMaker::new(keepalive, sx, sy, start);
 
         client.reset_timeouts(None)?;
@@ -172,24 +185,30 @@ impl Client {
         Ok(())
     }
 
-    pub fn consume_next(&mut self) -> Result<(Headers, Vec<u8>)> {
-        let (cmd, hdrs, body) = self.read_frame()?;
-        if &cmd != "MESSAGE" {
-            warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
+    pub fn consume_next(&mut self) -> Result<Frame> {
+        let frame = self.read_frame()?;
+        if &frame.command != "MESSAGE" {
+            warn!(
+                "Bad message from server: {:?}: {:?}",
+                frame.command, frame.headers
+            );
             return Err(StompError::ProtocolError.into());
         }
 
-        Ok((hdrs, body))
+        Ok(frame)
     }
 
-    pub fn maybe_consume_next(&mut self, timeout: Duration) -> Result<Option<(Headers, Vec<u8>)>> {
-        if let Some((cmd, hdrs, body)) = self.maybe_read_frame(timeout)? {
-            if &cmd != "MESSAGE" {
-                warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
+    pub fn maybe_consume_next(&mut self, timeout: Duration) -> Result<Option<Frame>> {
+        if let Some(frame) = self.maybe_read_frame(timeout)? {
+            if &frame.command != "MESSAGE" {
+                warn!(
+                    "Bad message from server: {:?}: {:?}",
+                    frame.command, frame.headers
+                );
                 return Err(StompError::ProtocolError.into());
             }
 
-            Ok(Some((hdrs, body)))
+            Ok(Some(frame))
         } else {
             Ok(None)
         }
@@ -201,11 +220,14 @@ impl Client {
         self.send("DISCONNECT", h, b"")?;
 
         loop {
-            let (cmd, hdrs, _) = self.read_frame()?;
-            if &cmd == "RECEIPT" {
+            let frame = self.read_frame()?;
+            if &frame.command == "RECEIPT" {
                 break;
             } else {
-                warn!("Unexpected message from server: {:?}: {:?}", cmd, hdrs);
+                warn!(
+                    "Unexpected message from server: {:?}: {:?}",
+                    frame.command, frame.headers
+                );
             }
         }
 
@@ -270,10 +292,7 @@ impl Client {
             };
         }
     }
-    fn maybe_read_frame(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<Option<(String, Headers, Vec<u8>)>> {
+    fn maybe_read_frame(&mut self, timeout: Duration) -> Result<Option<Frame>> {
         let mut buf = String::new();
         let start = SystemTime::now();
         let deadline = start + timeout;
@@ -296,7 +315,7 @@ impl Client {
         self.read_frame_headers_body(command).map(Some)
     }
 
-    fn read_frame(&mut self) -> Result<(String, Headers, Vec<u8>)> {
+    fn read_frame(&mut self) -> Result<Frame> {
         let mut buf = String::new();
         while buf.trim().is_empty() {
             buf.clear();
@@ -308,7 +327,7 @@ impl Client {
         self.read_frame_headers_body(command)
     }
 
-    fn read_frame_headers_body(&mut self, command: String) -> Result<(String, Headers, Vec<u8>)> {
+    fn read_frame_headers_body(&mut self, command: String) -> Result<Frame> {
         let mut buf = String::new();
         let mut headers = BTreeMap::new();
 
@@ -328,22 +347,26 @@ impl Client {
             headers.insert(decode_header(name), decode_header(value));
         }
         trace!("Reading body");
-        let mut buf = Vec::new();
+        let mut body = Vec::new();
         if let Some(lenstr) = headers.get("content-length") {
             let nbytes: u64 = lenstr.parse()?;
             trace!("Read bytes: {}", nbytes);
-            self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut buf)?;
+            self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut body)?;
         } else {
             trace!("Read until nul");
-            self.rdr.read_until(b'\0', &mut buf)?;
+            self.rdr.read_until(b'\0', &mut body)?;
         }
-        trace!("Read body: {:?}", buf);
-        if buf.pop() != Some(b'\0') {
+        trace!("Read body: {:?}", body);
+        if body.pop() != Some(b'\0') {
             warn!("No null at end of body");
             return Err(StompError::ProtocolError.into());
         }
 
-        let frame = (command, headers, buf);
+        let frame = Frame {
+            command,
+            headers,
+            body,
+        };
         trace!("read frame: {:?}", frame);
         Ok(frame)
     }

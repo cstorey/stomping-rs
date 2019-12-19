@@ -1,12 +1,13 @@
-use std::collections::BTreeMap;
 use thiserror::Error;
+
+use crate::Frame;
 
 pub type Result<T> = std::result::Result<T, StompError>;
 
 #[derive(Debug, Error)]
 pub enum StompError {
-    #[error("stomp error: {}: {:?}: {:?}", _0, _1, _2)]
-    StompError(String, BTreeMap<String, String>, String),
+    #[error("stomp error: {0:?}")]
+    StompError(Frame),
     #[error("Protocol error")]
     ProtocolError,
     #[error("Tried to ack a frame with no `ack` header")]

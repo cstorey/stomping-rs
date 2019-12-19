@@ -10,6 +10,7 @@ mod errors;
 use crate::errors::*;
 
 mod parser;
+mod unparser;
 
 pub struct Client {
     wr: BufWriter<TcpStream>,

@@ -22,6 +22,8 @@ fn encode_frame(buf: &mut BytesMut, frame: &Frame) -> Result<()> {
 
     buf.put_u8(b'\n');
 
+    buf.put_slice(&frame.body);
+
     buf.put_u8(b'\0');
 
     Ok(())
@@ -160,13 +162,30 @@ mod tests {
         assert!(res.is_err(), "Encoding should fail; got: {:?}", res);
     }
 
+    #[test]
+    fn should_encode_body() {
+        let frame = Frame {
+            command: Command::Send,
+            headers: Headers::new(),
+            body: b"x".to_vec(),
+        };
+        let mut buf = BytesMut::new();
+
+        encode_frame(&mut buf, &frame).expect("encode frame");
+
+        assert_eq!(
+            &*"SEND\n\nx\0",
+            std::str::from_utf8(&buf).expect("from utf8")
+        );
+    }
+
     #[ignore]
     #[test]
-    fn should_round_trip_frames() {
+    fn should_round_trip_frames_without_content_length() {
         use crate::parser::parse_frame;
 
         env_logger::try_init().unwrap_or(());
-        property(frames()).check(|frame| {
+        property(frames().filter(|frame| !frame.body.contains(&b'\0'))).check(|frame| {
             let mut buf = BytesMut::new();
 
             encode_frame(&mut buf, &frame).expect("encode frame");
@@ -188,6 +207,30 @@ mod tests {
             command: Command::Connected,
             headers: Default::default(),
             body: Default::default(),
+        };
+        println!("Frame: {:?}", frame);
+
+        let mut buf = BytesMut::new();
+        encode_frame(&mut buf, &frame).expect("encode frame");
+        println!("Encoded: {:?}", String::from_utf8_lossy(&buf));
+
+        let (remaining, parsed) = parse_frame(&buf).expect("parse").expect("some frame");
+
+        assert_eq!(frame, parsed);
+        assert!(
+            remaining.len() == 0,
+            "Remaining should be empty: {}",
+            String::from_utf8_lossy(remaining)
+        )
+    }
+
+    #[test]
+    fn should_round_trip_trivial_frame_2() {
+        use crate::parser::parse_frame;
+        let frame = Frame {
+            command: Command::Send,
+            headers: Default::default(),
+            body: vec![1],
         };
         println!("Frame: {:?}", frame);
 

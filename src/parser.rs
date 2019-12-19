@@ -15,8 +15,9 @@ use thiserror::Error;
 use crate::{Command, Frame, Headers};
 
 #[derive(Debug, Error)]
-pub struct ParseError<'a> {
-    remaining: &'a [u8],
+pub struct ParseError {
+    remaining: Vec<u8>,
+    truncated: bool,
     kind: nom::error::ErrorKind,
 }
 
@@ -25,8 +26,8 @@ pub(crate) fn parse_frame(input: &[u8]) -> Result<Option<(&[u8], Frame)>, ParseE
     match parse_inner(input) {
         Ok((remainder, frame)) => Ok(Some((remainder, frame))),
         Err(Err::Incomplete(_)) => Ok(None),
-        Err(Err::Error(e)) => Err(e.into()),
-        Err(Err::Failure(e)) => Err(e.into()),
+        Err(Err::Error(e)) => Err(std::borrow::ToOwned::to_owned(&e).into()),
+        Err(Err::Failure(e)) => Err(e.to_owned().into()),
     }
 }
 
@@ -105,22 +106,33 @@ fn parse_header_char(input: &[u8]) -> IResult<&[u8], char> {
     Ok((input, ch))
 }
 
-impl<'a> From<(&'a [u8], nom::error::ErrorKind)> for ParseError<'a> {
+impl<'a> From<(&'a [u8], nom::error::ErrorKind)> for ParseError {
     fn from((remaining, kind): (&'a [u8], nom::error::ErrorKind)) -> Self {
-        ParseError { remaining, kind }
+        const MAX_SNIPPET: usize = 80;
+        if remaining.len() > MAX_SNIPPET {
+            let remaining = remaining[..MAX_SNIPPET].to_vec();
+            let truncated = true;
+            ParseError {
+                remaining,
+                truncated,
+                kind,
+            }
+        } else {
+            let remaining = remaining.to_vec();
+            let truncated = false;
+            ParseError {
+                remaining,
+                truncated,
+                kind,
+            }
+        }
     }
 }
 
-impl<'a> fmt::Display for ParseError<'a> {
+impl fmt::Display for ParseError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        const MAX_SNIPPET: usize = 80;
-        if self.remaining.len() > MAX_SNIPPET {
-            write!(
-                fmt,
-                "{:?}: {:?}…",
-                self.kind,
-                &self.remaining[..MAX_SNIPPET]
-            )
+        if self.truncated {
+            write!(fmt, "{:?}: {:?}…", self.kind, &self.remaining)
         } else {
             write!(fmt, "{:?}: {:?}", self.kind, self.remaining)
         }

@@ -20,9 +20,26 @@ pub enum AckMode {
     ClientIndividual,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum Command {
+    // Client Commands
+    Connect,
+    Send,
+    Subscribe,
+    Unsubscribe,
+    Disconnect,
+    Ack,
+
+    // Server commands
+    Connected,
+    Message,
+    Receipt,
+    Error,
+}
+
 #[derive(Clone, Debug, Hash)]
 pub struct Frame {
-    pub command: String,
+    pub command: Command,
     pub headers: Headers,
     pub body: Vec<u8>,
 }
@@ -121,17 +138,16 @@ impl Client {
             conn_headers.insert("login".to_string(), user.to_string());
             conn_headers.insert("passcode".to_string(), pass.to_string());
         }
-        client.send("CONNECT", conn_headers, &[])?;
+        client.send(Command::Connect, conn_headers, &[])?;
 
         let frame = client.read_frame()?;
-        if &frame.command == "ERROR" {
-            let body = String::from_utf8_lossy(&frame.body).into_owned();
+        if frame.command == Command::Error {
             warn!(
                 "Error response from server: {:?}: {:?}",
                 frame.command, frame.headers
             );
             return Err(StompError::StompError(frame).into());
-        } else if &frame.command != "CONNECTED" {
+        } else if frame.command != Command::Connected {
             warn!(
                 "Bad response from server: {:?}: {:?}",
                 frame.command, frame.headers
@@ -167,27 +183,27 @@ impl Client {
         h.insert("destination".to_string(), destination.to_string());
         h.insert("id".to_string(), id.to_string());
         h.insert("ack".to_string(), mode.as_str().to_string());
-        self.send("SUBSCRIBE", h, b"")?;
+        self.send(Command::Subscribe, h, b"")?;
         Ok(())
     }
     pub fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("content-length".to_string(), format!("{}", body.len()));
-        self.send("SEND", h, body)?;
+        self.send(Command::Send, h, body)?;
         Ok(())
     }
     pub fn ack(&mut self, headers: &Headers) -> Result<()> {
         let mut h = BTreeMap::new();
         let mid = headers.get("ack").ok_or(StompError::NoAckHeader)?;
         h.insert("id".to_string(), mid.to_string());
-        self.send("ACK", h, &[])?;
+        self.send(Command::Ack, h, &[])?;
         Ok(())
     }
 
     pub fn consume_next(&mut self) -> Result<Frame> {
         let frame = self.read_frame()?;
-        if &frame.command != "MESSAGE" {
+        if frame.command != Command::Message {
             warn!(
                 "Bad message from server: {:?}: {:?}",
                 frame.command, frame.headers
@@ -200,7 +216,7 @@ impl Client {
 
     pub fn maybe_consume_next(&mut self, timeout: Duration) -> Result<Option<Frame>> {
         if let Some(frame) = self.maybe_read_frame(timeout)? {
-            if &frame.command != "MESSAGE" {
+            if frame.command != Command::Message {
                 warn!(
                     "Bad message from server: {:?}: {:?}",
                     frame.command, frame.headers
@@ -217,11 +233,11 @@ impl Client {
     pub fn disconnect(mut self) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("receipt".to_string(), "42".to_string());
-        self.send("DISCONNECT", h, b"")?;
+        self.send(Command::Disconnect, h, b"")?;
 
         loop {
             let frame = self.read_frame()?;
-            if &frame.command == "RECEIPT" {
+            if frame.command == Command::Receipt {
                 break;
             } else {
                 warn!(
@@ -236,11 +252,11 @@ impl Client {
 
     fn send(
         &mut self,
-        command: &str,
+        command: Command,
         headers: BTreeMap<String, String>,
         body: &[u8],
     ) -> Result<()> {
-        writeln!(self.wr, "{}", command)?;
+        writeln!(self.wr, "{}", command.as_str())?;
         for (k, v) in headers {
             writeln!(self.wr, "{}:{}", encode_header(&k), encode_header(&v))?;
         }
@@ -311,7 +327,7 @@ impl Client {
                 return Ok(None);
             }
         }
-        let command = buf.trim().to_string();
+        let command = buf.trim().parse()?;
         self.read_frame_headers_body(command).map(Some)
     }
 
@@ -323,11 +339,11 @@ impl Client {
             trace!("Read command line: {:?}", buf);
             assert!(!buf.is_empty());
         }
-        let command = buf.trim().to_string();
+        let command = buf.trim().parse()?;
         self.read_frame_headers_body(command)
     }
 
-    fn read_frame_headers_body(&mut self, command: String) -> Result<Frame> {
+    fn read_frame_headers_body(&mut self, command: Command) -> Result<Frame> {
         let mut buf = String::new();
         let mut headers = BTreeMap::new();
 
@@ -369,6 +385,42 @@ impl Client {
         };
         trace!("read frame: {:?}", frame);
         Ok(frame)
+    }
+}
+
+impl Command {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Command::Connect => "CONNECT",
+            Command::Send => "SEND",
+            Command::Subscribe => "SUBSCRIBE",
+            Command::Unsubscribe => "UNSUBSCRIBE",
+            Command::Disconnect => "DISCONNECT",
+            Command::Ack => "ACK",
+            Command::Connected => "CONNECTED",
+            Command::Message => "MESSAGE",
+            Command::Receipt => "RECEIPT",
+            Command::Error => "ERROR",
+        }
+    }
+}
+
+impl std::str::FromStr for Command {
+    type Err = StompError;
+    fn from_str(input: &str) -> Result<Self> {
+        match input {
+            "CONNECT" => Ok(Command::Connect),
+            "SEND" => Ok(Command::Send),
+            "SUBSCRIBE" => Ok(Command::Subscribe),
+            "UNSUBSCRIBE" => Ok(Command::Unsubscribe),
+            "DISCONNECT" => Ok(Command::Disconnect),
+            "ACK" => Ok(Command::Ack),
+            "CONNECTED" => Ok(Command::Connected),
+            "MESSAGE" => Ok(Command::Message),
+            "RECEIPT" => Ok(Command::Receipt),
+            "ERROR" => Ok(Command::Error),
+            _ => Err(StompError::ProtocolError),
+        }
     }
 }
 

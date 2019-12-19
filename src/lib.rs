@@ -1,7 +1,5 @@
-use failure;
 #[macro_use]
 extern crate log;
-use failure::Fallible;
 use std::cmp;
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
@@ -68,7 +66,7 @@ fn decode_header(s: &str) -> String {
 
 pub type Headers = BTreeMap<String, String>;
 
-fn parse_keepalive(headervalue: Option<&str>) -> Fallible<(Option<Duration>, Option<Duration>)> {
+fn parse_keepalive(headervalue: Option<&str>) -> Result<(Option<Duration>, Option<Duration>)> {
     if let Some(sxsy) = headervalue {
         info!("heartbeat: theirs:{:?}", sxsy);
         let mut it = sxsy.trim().splitn(2, ',');
@@ -95,7 +93,7 @@ impl Client {
         a: A,
         credentials: Option<(&str, &str)>,
         keepalive: Option<Duration>,
-    ) -> Fallible<Self> {
+    ) -> Result<Self> {
         let start = SystemTime::now();
         let wr = TcpStream::connect(a)?;
         debug!("connected to: {:?}", wr.peer_addr()?);
@@ -135,7 +133,7 @@ impl Client {
         Ok(client)
     }
 
-    fn reset_timeouts(&mut self, deadline: Option<SystemTime>) -> Fallible<()> {
+    fn reset_timeouts(&mut self, deadline: Option<SystemTime>) -> Result<()> {
         let now = SystemTime::now();
         let remaining = deadline.and_then(|dl| dl.duration_since(now).ok());
         debug!("#reset_timeouts: remaining: {:?}", remaining);
@@ -151,7 +149,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Fallible<()> {
+    pub fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("id".to_string(), id.to_string());
@@ -159,14 +157,14 @@ impl Client {
         self.send("SUBSCRIBE", h, b"")?;
         Ok(())
     }
-    pub fn publish(&mut self, destination: &str, body: &[u8]) -> Fallible<()> {
+    pub fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("content-length".to_string(), format!("{}", body.len()));
         self.send("SEND", h, body)?;
         Ok(())
     }
-    pub fn ack(&mut self, headers: &Headers) -> Fallible<()> {
+    pub fn ack(&mut self, headers: &Headers) -> Result<()> {
         let mut h = BTreeMap::new();
         let mid = headers.get("ack").ok_or(StompError::NoAckHeader)?;
         h.insert("id".to_string(), mid.to_string());
@@ -174,7 +172,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn consume_next(&mut self) -> Fallible<(Headers, Vec<u8>)> {
+    pub fn consume_next(&mut self) -> Result<(Headers, Vec<u8>)> {
         let (cmd, hdrs, body) = self.read_frame()?;
         if &cmd != "MESSAGE" {
             warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
@@ -184,10 +182,7 @@ impl Client {
         Ok((hdrs, body))
     }
 
-    pub fn maybe_consume_next(
-        &mut self,
-        timeout: Duration,
-    ) -> Fallible<Option<(Headers, Vec<u8>)>> {
+    pub fn maybe_consume_next(&mut self, timeout: Duration) -> Result<Option<(Headers, Vec<u8>)>> {
         if let Some((cmd, hdrs, body)) = self.maybe_read_frame(timeout)? {
             if &cmd != "MESSAGE" {
                 warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
@@ -200,7 +195,7 @@ impl Client {
         }
     }
 
-    pub fn disconnect(mut self) -> Fallible<()> {
+    pub fn disconnect(mut self) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("receipt".to_string(), "42".to_string());
         self.send("DISCONNECT", h, b"")?;
@@ -222,7 +217,7 @@ impl Client {
         command: &str,
         headers: BTreeMap<String, String>,
         body: &[u8],
-    ) -> Fallible<()> {
+    ) -> Result<()> {
         writeln!(self.wr, "{}", command)?;
         for (k, v) in headers {
             writeln!(self.wr, "{}:{}", encode_header(&k), encode_header(&v))?;
@@ -237,7 +232,7 @@ impl Client {
         Ok(())
     }
 
-    fn read_line(&mut self, buf: &mut String, timeout: Option<SystemTime>) -> Fallible<Option<()>> {
+    fn read_line(&mut self, buf: &mut String, timeout: Option<SystemTime>) -> Result<Option<()>> {
         loop {
             let deadline_passed = timeout.map(|to| to <= SystemTime::now()).unwrap_or(false);
             if deadline_passed {
@@ -278,7 +273,7 @@ impl Client {
     fn maybe_read_frame(
         &mut self,
         timeout: Duration,
-    ) -> Fallible<Option<(String, Headers, Vec<u8>)>> {
+    ) -> Result<Option<(String, Headers, Vec<u8>)>> {
         let mut buf = String::new();
         let start = SystemTime::now();
         let deadline = start + timeout;
@@ -301,7 +296,7 @@ impl Client {
         self.read_frame_headers_body(command).map(Some)
     }
 
-    fn read_frame(&mut self) -> Fallible<(String, Headers, Vec<u8>)> {
+    fn read_frame(&mut self) -> Result<(String, Headers, Vec<u8>)> {
         let mut buf = String::new();
         while buf.trim().is_empty() {
             buf.clear();
@@ -313,7 +308,7 @@ impl Client {
         self.read_frame_headers_body(command)
     }
 
-    fn read_frame_headers_body(&mut self, command: String) -> Fallible<(String, Headers, Vec<u8>)> {
+    fn read_frame_headers_body(&mut self, command: String) -> Result<(String, Headers, Vec<u8>)> {
         let mut buf = String::new();
         let mut headers = BTreeMap::new();
 
@@ -422,7 +417,7 @@ impl PaceMaker {
         debug!("last_observed_write now: {:?}", at);
     }
 
-    fn handle_read_timeout(&mut self, at: SystemTime) -> Fallible<BeatAction> {
+    fn handle_read_timeout(&mut self, at: SystemTime) -> Result<BeatAction> {
         debug!("handle_read_timeout: {:?} at {:?}", self, &at);
         if let (mark, Some(interval)) = (self.last_observed_write, self.client_to_server) {
             let duration = at.duration_since(mark)?;
@@ -459,8 +454,8 @@ impl PaceMaker {
 
 #[cfg(test)]
 mod test {
-    use env_logger;
     use super::*;
+    use env_logger;
     use std::time::{Duration, SystemTime};
 
     #[test]

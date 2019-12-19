@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use thiserror::Error;
 
-#[derive(Clone, Eq, PartialEq, Debug, Error)]
+pub type Result<T> = std::result::Result<T, StompError>;
+
+#[derive(Debug, Error)]
 pub enum StompError {
     #[error("stomp error: {}: {:?}: {:?}", _0, _1, _2)]
     StompError(String, BTreeMap<String, String>, String),
@@ -11,6 +13,12 @@ pub enum StompError {
     NoAckHeader,
     #[error("peer seems to be unresponsive")]
     PeerFailed,
+    #[error("system time")]
+    SystemTime(#[from] std::time::SystemTimeError),
+    #[error("I/O")]
+    Io(#[from] std::io::Error),
+    #[error("parse integer")]
+    ParseInt(#[from] std::num::ParseIntError),
 }
 
 #[cfg(never)]

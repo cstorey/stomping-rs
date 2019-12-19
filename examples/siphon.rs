@@ -3,7 +3,6 @@ use env_logger;
 #[macro_use]
 extern crate clap;
 
-
 use std::time::Duration;
 
 use clap::{App, Arg};

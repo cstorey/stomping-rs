@@ -11,6 +11,9 @@ fn encode_frame(buf: &mut BytesMut, frame: &Frame) -> Result<()> {
     buf.put_u8(b'\n');
 
     for (k, v) in frame.headers.iter() {
+        if k.len() == 0 {
+            return Err(StompError::ProtocolError);
+        }
         encode_header_label(buf, k);
         buf.put_u8(b':');
         encode_header_label(buf, v);
@@ -38,6 +41,7 @@ fn encode_header_label(buf: &mut BytesMut, label: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use suppositions::{generators::Generator, property};
 
     #[test]
     fn should_encode_trivial_example() {
@@ -130,6 +134,7 @@ mod tests {
             headers: btreemap! {"x".into() => "\r".into()},
             body: Vec::new(),
         };
+
         let mut buf = BytesMut::new();
 
         encode_frame(&mut buf, &frame).expect("encode frame");
@@ -138,5 +143,93 @@ mod tests {
             &*"SEND\nx:\\r\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
+    }
+
+    #[test]
+    fn should_fail_on_empty_header_name() {
+        let frame = Frame {
+            command: Command::Send,
+            headers: btreemap! {"".into() => "y".into()},
+            body: Vec::new(),
+        };
+
+        let mut buf = BytesMut::new();
+
+        let res = encode_frame(&mut buf, &frame);
+
+        assert!(res.is_err(), "Encoding should fail; got: {:?}", res);
+    }
+
+    #[ignore]
+    #[test]
+    fn should_round_trip_frames() {
+        use crate::parser::parse_frame;
+
+        env_logger::try_init().unwrap_or(());
+        property(frames()).check(|frame| {
+            let mut buf = BytesMut::new();
+
+            encode_frame(&mut buf, &frame).expect("encode frame");
+            let (remaining, parsed) = parse_frame(&buf).expect("parse").expect("some frame");
+
+            assert_eq!(frame, parsed);
+            assert!(
+                remaining.len() == 0,
+                "Remaining should be empty: {}",
+                String::from_utf8_lossy(remaining)
+            )
+        })
+    }
+
+    #[test]
+    fn should_round_trip_trivial_frame() {
+        use crate::parser::parse_frame;
+        let frame = Frame {
+            command: Command::Connected,
+            headers: Default::default(),
+            body: Default::default(),
+        };
+        println!("Frame: {:?}", frame);
+
+        let mut buf = BytesMut::new();
+        encode_frame(&mut buf, &frame).expect("encode frame");
+        println!("Encoded: {:?}", String::from_utf8_lossy(&buf));
+
+        let (remaining, parsed) = parse_frame(&buf).expect("parse").expect("some frame");
+
+        assert_eq!(frame, parsed);
+        assert!(
+            remaining.len() == 0,
+            "Remaining should be empty: {}",
+            String::from_utf8_lossy(remaining)
+        )
+    }
+
+    fn asciis() -> impl Generator<Item = String> {
+        use suppositions::generators::*;
+        collections(u8s().map(|c| std::char::from_u32(c as u32).expect("char")))
+    }
+
+    fn frames() -> impl Generator<Item = Frame> {
+        use suppositions::generators::*;
+        let commands = one_of(consts(Command::Send))
+            .or(consts(Command::Connect))
+            .or(consts(Command::Subscribe))
+            .or(consts(Command::Unsubscribe))
+            .or(consts(Command::Disconnect))
+            .or(consts(Command::Ack))
+            .or(consts(Command::Connected))
+            .or(consts(Command::Message))
+            .or(consts(Command::Receipt))
+            .or(consts(Command::Error));
+
+        let headers = collections((asciis(), asciis()));
+
+        let bodies = vecs(u8s());
+        (commands, headers, bodies).map(|(command, headers, body)| Frame {
+            command,
+            headers,
+            body,
+        })
     }
 }

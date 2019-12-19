@@ -21,7 +21,7 @@ pub struct ParseError<'a> {
 }
 
 // See grammar described at https://stomp.github.io/stomp-specification-1.2.html#Augmented_BNF
-fn parse_frame(input: &[u8]) -> Result<Option<(&[u8], Frame)>, ParseError> {
+pub(crate) fn parse_frame(input: &[u8]) -> Result<Option<(&[u8], Frame)>, ParseError> {
     match parse_inner(input) {
         Ok((remainder, frame)) => Ok(Some((remainder, frame))),
         Err(Err::Incomplete(_)) => Ok(None),
@@ -51,18 +51,17 @@ fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
 
 fn parse_command(input: &[u8]) -> IResult<&[u8], Command> {
     let (input, cmd) = alt((
-        map(tag("CONNECT"), |_| Command::Connect),
-        map(tag("SEND"), |_| Command::Send),
-        map(tag("SUBSCRIBE"), |_| Command::Subscribe),
-        map(tag("UNSUBSCRIBE"), |_| Command::Unsubscribe),
-        map(tag("DISCONNECT"), |_| Command::Disconnect),
-        map(tag("ACK"), |_| Command::Ack),
-        map(tag("CONNECTED"), |_| Command::Connected),
-        map(tag("MESSAGE"), |_| Command::Message),
-        map(tag("RECEIPT"), |_| Command::Receipt),
-        map(tag("ERROR"), |_| Command::Error),
+        map(tag("CONNECT\n"), |_| Command::Connect),
+        map(tag("SEND\n"), |_| Command::Send),
+        map(tag("SUBSCRIBE\n"), |_| Command::Subscribe),
+        map(tag("UNSUBSCRIBE\n"), |_| Command::Unsubscribe),
+        map(tag("DISCONNECT\n"), |_| Command::Disconnect),
+        map(tag("ACK\n"), |_| Command::Ack),
+        map(tag("CONNECTED\n"), |_| Command::Connected),
+        map(tag("MESSAGE\n"), |_| Command::Message),
+        map(tag("RECEIPT\n"), |_| Command::Receipt),
+        map(tag("ERROR\n"), |_| Command::Error),
     ))(input)?;
-    let (input, _) = newline(input)?;
     Ok((input, cmd))
 }
 

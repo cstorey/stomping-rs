@@ -40,7 +40,7 @@ pub enum Command {
     Error,
 }
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub struct Frame {
     pub command: Command,
     pub headers: Headers,

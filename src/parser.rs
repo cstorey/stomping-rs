@@ -108,7 +108,9 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (Vec<u8>, Vec<u8>)> {
     let (input, name) = many1(parse_header_char)(input)?;
     let (input, _) = char(':')(input)?;
 
-    let (input, value) = many0(parse_header_char)(input)?;
+    // ActiveMQ includes literal colons in the value for some headers, such
+    // as session id.
+    let (input, value) = many0(alt((parse_header_char, map(tag(b":"), |_| b':'))))(input)?;
 
     let (input, _) = newline(input)?;
 
@@ -263,5 +265,47 @@ mod tests {
         let frame = result.expect("some frame");
         assert_eq!(b"stuff" as &[u8], &data);
         assert_eq!(FrameOrKeepAlive::KeepAlive, frame);
+    }
+
+    // ActiveMQ includes literal colons in their header values.
+    #[test]
+    fn activemq_example() {
+        env_logger::try_init().unwrap_or_default();
+
+        let mut data = BytesMut::from(
+            b"CONNECTED\n\
+            server:ActiveMQ/5.15.10\n\
+            heart-beat:0,0\n\
+            session:ID:nrdp-prod-01.dsg.caci.co.uk-37320-1573126237601-1:148528\n\
+            version:1.2\n\
+            \n\
+            \0\n" as &[u8],
+        );
+
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame").unwrap_frame();
+        assert_eq!(b"\n" as &[u8], &data);
+        assert_eq!(frame.command, Command::Connected);
+        assert_eq!(&*frame.body, &*b"");
+    }
+    #[test]
+    fn rabbitmq_example() {
+        env_logger::try_init().unwrap_or_default();
+
+        let mut data = BytesMut::from(
+            b"CONNECTED\n\
+            server:RabbitMQ/3.7.8\n\
+            session:session-c6cLWDadx0jYlG9s25R5Ag\n\
+            heart-beat:0,0\n\
+            version:1.2\n\
+            \n\
+            \0\n" as &[u8],
+        );
+
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame").unwrap_frame();
+        assert_eq!(b"\n" as &[u8], &data);
+        assert_eq!(frame.command, Command::Connected);
+        assert_eq!(&*frame.body, &*b"");
     }
 }

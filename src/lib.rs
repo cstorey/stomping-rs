@@ -2,24 +2,21 @@
 extern crate log;
 use std::cmp;
 use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, SystemTime};
 
-use bytes::BytesMut;
+use futures::{sink::SinkExt, stream::StreamExt};
+use tokio::net::{TcpStream, ToSocketAddrs};
+use tokio_util::codec::Framed;
 
 mod errors;
 use crate::errors::*;
-use crate::unparser::encode_frame;
 
 mod connection;
 mod parser;
 mod unparser;
 
 pub struct Client {
-    wr: BufWriter<TcpStream>,
-    rdr: BufReader<TcpStream>,
-    pace: PaceMaker,
+    inner: Framed<TcpStream, connection::StompCodec>,
 }
 
 pub enum AckMode {
@@ -112,22 +109,16 @@ fn some_non_zero(dur: Duration) -> Option<Duration> {
 }
 
 impl Client {
-    pub fn connect<A: ToSocketAddrs>(
+    pub async fn connect<A: ToSocketAddrs>(
         a: A,
         credentials: Option<(&str, &str)>,
         keepalive: Option<Duration>,
     ) -> Result<Self> {
-        let start = SystemTime::now();
-        let wr = TcpStream::connect(a)?;
-        debug!("connected to: {:?}", wr.peer_addr()?);
-        wr.set_read_timeout(keepalive.map(|d| d * 3))?;
-        let rdr = wr.try_clone()?;
+        let conn = TcpStream::connect(a).await?;
+
+        let mut conn = connection::wrap(conn);
+
         let mut conn_headers = BTreeMap::new();
-        let mut client = Client {
-            wr: BufWriter::new(wr),
-            rdr: BufReader::new(rdr),
-            pace: PaceMaker::new(None, None, None, start),
-        };
         conn_headers.insert("accept-version".to_string(), "1.2".to_string());
         if let &Some(ref duration) = &keepalive {
             let millis = duration.as_secs() * 1000 + duration.subsec_nanos() as u64 / 1000_000;
@@ -138,14 +129,27 @@ impl Client {
             conn_headers.insert("passcode".to_string(), pass.to_string());
         }
         trace!("Sending connect frame");
-        client.send(&Frame {
+        conn.send(FrameOrKeepAlive::Frame(Frame {
             command: Command::Connect,
             headers: conn_headers,
             body: vec![],
-        })?;
+        }))
+        .await?;
 
         trace!("Awaiting connected frame");
-        let frame = client.read_frame()?;
+        let frame = conn.next().await.transpose()?.ok_or_else(|| {
+            warn!("Connection closed before first frame received");
+            StompError::ProtocolError
+        })?;
+
+        let frame = match frame {
+            FrameOrKeepAlive::Frame(frame) => frame,
+            FrameOrKeepAlive::KeepAlive => {
+                warn!("Keepalive sent before first frame received");
+                return Err(StompError::ProtocolError);
+            }
+        };
+
         if frame.command == Command::Error {
             warn!(
                 "Error response from server: {:?}: {:?}",
@@ -160,245 +164,118 @@ impl Client {
             return Err(StompError::ProtocolError.into());
         }
 
+        /*
         let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat").map(|s| &**s))?;
         client.pace = PaceMaker::new(keepalive, sx, sy, start);
 
         client.reset_timeouts(None)?;
         Ok(client)
+        */
+        // TODO: Keepalives and such
+        let client = Client { inner: conn };
+        Ok(client)
     }
 
-    fn reset_timeouts(&mut self, deadline: Option<SystemTime>) -> Result<()> {
-        let now = SystemTime::now();
-        let remaining = deadline.and_then(|dl| dl.duration_since(now).ok());
-        debug!("#reset_timeouts: remaining: {:?}", remaining);
-        let timeout = match (remaining, self.pace.read_timeout(now)) {
-            (Some(t), Some(rt)) => Some(cmp::min(t, rt)),
-            (Some(t), None) => Some(t),
-            (None, Some(rt)) => Some(rt),
-            (None, None) => None,
-        };
-
-        self.wr.get_mut().set_read_timeout(timeout)?;
-        self.rdr.get_mut().set_read_timeout(timeout)?;
-        Ok(())
-    }
-
-    pub fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
+    pub async fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("id".to_string(), id.to_string());
         h.insert("ack".to_string(), mode.as_str().to_string());
-        self.send(&Frame {
+        self.send(Frame {
             command: Command::Subscribe,
             headers: h,
             body: Vec::new(),
-        })?;
+        })
+        .await?;
         Ok(())
     }
-    pub fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
+    pub async fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("content-length".to_string(), format!("{}", body.len()));
-        self.send(&Frame {
+        self.send(Frame {
             command: Command::Send,
             headers: h,
             body: body.into(),
-        })?;
+        })
+        .await?;
         Ok(())
     }
-    pub fn ack(&mut self, headers: &Headers) -> Result<()> {
+
+    pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
         let mut h = BTreeMap::new();
         let mid = headers.get("ack").ok_or(StompError::NoAckHeader)?;
         h.insert("id".to_string(), mid.to_string());
-        self.send(&Frame {
+        self.send(Frame {
             command: Command::Ack,
             headers: h,
             body: Vec::new(),
-        })?;
+        })
+        .await?;
         Ok(())
     }
 
-    pub fn consume_next(&mut self) -> Result<Frame> {
-        let frame = self.read_frame()?;
-        if frame.command != Command::Message {
-            warn!(
-                "Bad message from server: {:?}: {:?}",
-                frame.command, frame.headers
-            );
-            return Err(StompError::ProtocolError.into());
-        }
-
-        Ok(frame)
-    }
-
-    pub fn maybe_consume_next(&mut self, timeout: Duration) -> Result<Option<Frame>> {
-        if let Some(frame) = self.maybe_read_frame(timeout)? {
-            if frame.command != Command::Message {
-                warn!(
-                    "Bad message from server: {:?}: {:?}",
-                    frame.command, frame.headers
-                );
-                return Err(StompError::ProtocolError.into());
+    pub async fn consume_next(&mut self) -> Result<Frame> {
+        loop {
+            let msg = self.inner.next().await.transpose()?.ok_or_else(|| {
+                warn!("Connection dropped while awaiting frame");
+                StompError::ProtocolError
+            })?;
+            match msg {
+                FrameOrKeepAlive::KeepAlive => continue,
+                FrameOrKeepAlive::Frame(
+                    frame @ Frame {
+                        command: Command::Message,
+                        ..
+                    },
+                ) => return Ok(frame),
+                FrameOrKeepAlive::Frame(frame) => {
+                    warn!(
+                        "Bad message from server: {:?}: {:?}",
+                        frame.command, frame.headers
+                    );
+                    return Err(StompError::ProtocolError.into());
+                }
             }
-
-            Ok(Some(frame))
-        } else {
-            Ok(None)
         }
     }
 
-    pub fn disconnect(mut self) -> Result<()> {
+    pub async fn disconnect(mut self) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert("receipt".to_string(), "42".to_string());
-        self.send(&Frame {
+        self.send(Frame {
             command: Command::Disconnect,
             headers: h,
             body: Vec::new(),
-        })?;
+        })
+        .await?;
 
         loop {
-            let frame = self.read_frame()?;
-            if frame.command == Command::Receipt {
-                break;
-            } else {
-                warn!(
-                    "Unexpected message from server: {:?}: {:?}",
-                    frame.command, frame.headers
-                );
+            let msg = self.inner.next().await.transpose()?.ok_or_else(|| {
+                warn!("Connection dropped while awaiting frame");
+                StompError::ProtocolError
+            })?;
+            match msg {
+                FrameOrKeepAlive::KeepAlive => continue,
+                FrameOrKeepAlive::Frame(Frame {
+                    command: Command::Receipt,
+                    ..
+                }) => break,
+                FrameOrKeepAlive::Frame(frame) => {
+                    warn!(
+                        "Unexpected message from server: {:?}: {:?}",
+                        frame.command, frame.headers
+                    );
+                }
             }
         }
 
         Ok(())
     }
 
-    fn send(&mut self, frame: &Frame) -> Result<()> {
-        let mut buf = BytesMut::new();
-        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame.clone()))?;
-
-        self.wr.write_all(&buf)?;
-        self.wr.flush()?;
-        trace!("Wrote {} bytes", buf.len());
-
-        self.pace.write_observed(SystemTime::now());
-        self.reset_timeouts(None)?;
+    async fn send(&mut self, frame: Frame) -> Result<()> {
+        self.inner.send(FrameOrKeepAlive::Frame(frame)).await?;
         Ok(())
-    }
-
-    fn read_line(&mut self, buf: &mut String, timeout: Option<SystemTime>) -> Result<Option<()>> {
-        loop {
-            let deadline_passed = timeout.map(|to| to <= SystemTime::now()).unwrap_or(false);
-            if deadline_passed {
-                return Ok(None);
-            }
-
-            self.reset_timeouts(timeout)?;
-            let result = self.rdr.read_line(buf);
-            debug!("read line result: {:?}", result);
-            match result {
-                Ok(_) => {
-                    self.pace.read_observed(SystemTime::now());
-                    self.reset_timeouts(None)?;
-                    return Ok(Some(()));
-                }
-                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let action = self.pace.handle_read_timeout(SystemTime::now())?;
-                    debug!("Would block: {:?}; timeout? {:?}", action, timeout);
-                    match action {
-                        BeatAction::Retry => self.reset_timeouts(None)?,
-                        BeatAction::SendClientHeart => {
-                            self.wr.write_all(b"\n")?;
-                            self.wr.flush()?;
-                            self.pace.write_observed(SystemTime::now());
-                            self.reset_timeouts(None)?;
-                            debug!("Sent heartbeat");
-                        }
-                        BeatAction::PeerFailed => return Err(StompError::PeerFailed.into()),
-                    };
-                }
-                Err(e) => {
-                    warn!("Read returned: kind:{:?}", e.kind());
-                    return Err(e.into());
-                }
-            };
-        }
-    }
-    fn maybe_read_frame(&mut self, timeout: Duration) -> Result<Option<Frame>> {
-        let mut buf = String::new();
-        let start = SystemTime::now();
-        let deadline = start + timeout;
-        while buf.trim().is_empty() {
-            buf.clear();
-            let elapsed = start.elapsed()?;
-            if elapsed >= timeout {
-                debug!("Timeout expired");
-                return Ok(None);
-            }
-            debug!("Timeout Remaining: {:?}", timeout - elapsed);
-            if let Some(()) = self.read_line(&mut buf, Some(deadline))? {
-                trace!("Read command line: {:?}", buf);
-                assert!(!buf.is_empty());
-            } else {
-                return Ok(None);
-            }
-        }
-        let command = buf.trim().parse()?;
-        self.read_frame_headers_body(command).map(Some)
-    }
-
-    fn read_frame(&mut self) -> Result<Frame> {
-        let mut buf = String::new();
-        while buf.trim().is_empty() {
-            buf.clear();
-            self.read_line(&mut buf, None)?;
-            trace!("Read command line: {:?}", buf);
-            assert!(!buf.is_empty());
-        }
-        let command = buf.trim().parse()?;
-        self.read_frame_headers_body(command)
-    }
-
-    fn read_frame_headers_body(&mut self, command: Command) -> Result<Frame> {
-        let mut buf = String::new();
-        let mut headers = BTreeMap::new();
-
-        // Given we are half way into a frame, we can be reasonably sure that
-        // more data is coming soon, so reset our timeouts.
-        self.reset_timeouts(None)?;
-        loop {
-            buf.clear();
-            self.rdr.read_line(&mut buf)?;
-            trace!("Read header line: {:?}", buf);
-            if buf == "\n" {
-                break;
-            }
-            let mut it = buf.trim().splitn(2, ':');
-            let name = it.next().ok_or(StompError::ProtocolError)?;
-            let value = it.next().ok_or(StompError::ProtocolError)?;
-            headers.insert(decode_header(name), decode_header(value));
-        }
-        trace!("Reading body");
-        let mut body = Vec::new();
-        if let Some(lenstr) = headers.get("content-length") {
-            let nbytes: u64 = lenstr.parse()?;
-            trace!("Read bytes: {}", nbytes);
-            self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut body)?;
-        } else {
-            trace!("Read until nul");
-            self.rdr.read_until(b'\0', &mut body)?;
-        }
-        trace!("Read body: {:?}", body);
-        if body.pop() != Some(b'\0') {
-            warn!("No null at end of body");
-            return Err(StompError::ProtocolError.into());
-        }
-
-        let frame = Frame {
-            command,
-            headers,
-            body,
-        };
-        trace!("read frame: {:?}", frame);
-        Ok(frame)
     }
 }
 

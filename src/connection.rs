@@ -7,9 +7,9 @@ use crate::parser::parse_frame;
 use crate::unparser::encode_frame;
 use crate::FrameOrKeepAlive;
 
-struct StompCodec;
+pub(crate) struct StompCodec;
 
-fn wrap<T: AsyncRead + AsyncWrite>(inner: T) -> Framed<T, StompCodec> {
+pub(crate) fn wrap<T: AsyncRead + AsyncWrite>(inner: T) -> Framed<T, StompCodec> {
     Framed::new(inner, StompCodec)
 }
 

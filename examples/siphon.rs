@@ -6,11 +6,13 @@ extern crate clap;
 use std::time::Duration;
 
 use clap::{App, Arg};
+use tokio;
 use url::Url;
 
 use stomping::*;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let matches = App::new("listener")
         .version("?")
         .author("Ceri Storey")
@@ -40,18 +42,22 @@ fn main() {
 
     println!("user: {:?}; pass:{:?}", url.username(), url.password());
     let creds = url.password().map(|p| (url.username(), p));
-    let hostport = (
+
+    let hostport: (&str, u16) = (
         url.host_str().unwrap_or("localhost"),
         url.port().unwrap_or(61613),
     );
-    let mut client = Client::connect(hostport, creds, heartbeat).expect("connect");
+    let mut client = Client::connect(hostport, creds, heartbeat)
+        .await
+        .expect("connect");
 
     client
         .subscribe(url.path(), "0", AckMode::Auto)
+        .await
         .expect("subscribe");
 
     loop {
-        let frame = client.consume_next().expect("consume_next");
+        let frame = client.consume_next().await.expect("consume_next");
         println!("{:?}", frame.headers);
         println!("{:?}", String::from_utf8_lossy(&frame.body));
     }

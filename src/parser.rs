@@ -2,7 +2,13 @@
 
 use std::fmt;
 
-use nom::{branch::alt, bytes::streaming::tag, character::streaming::*, combinator::map};
+use nom::{
+    branch::alt,
+    bytes::streaming::{tag, take_while, take_while1},
+    character::streaming::*,
+    combinator::map,
+    multi::fold_many0,
+};
 use nom::{Err, IResult};
 use thiserror::Error;
 
@@ -27,7 +33,7 @@ fn parse_frame(input: &[u8]) -> Result<Option<(&[u8], Frame)>, ParseError> {
 fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
     let (input, command) = parse_command(input)?;
     // headers should go here.
-    let headers = Headers::new();
+    let (input, headers) = parse_headers(input)?;
     let (input, _) = newline(input)?;
     // Body should be parsed here.
     let body = Vec::new();
@@ -57,6 +63,41 @@ fn parse_command(input: &[u8]) -> IResult<&[u8], Command> {
     ))(input)?;
     let (input, _) = newline(input)?;
     Ok((input, cmd))
+}
+
+fn parse_headers(input: &[u8]) -> IResult<&[u8], Headers> {
+    let (input, headers) = fold_many0(parse_header, Headers::new(), |mut headers, (k, v)| {
+        headers.insert(k.to_owned(), v.to_owned());
+        headers
+    })(input)?;
+
+    Ok((input, headers))
+}
+
+fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
+    let (input, name) = take_while1(is_header_char)(input)?;
+    let (input, _) = char(':')(input)?;
+    let (input, value) = take_while(is_header_char)(input)?;
+    let (input, _) = newline(input)?;
+
+    // This is a horrendous hack. Replace this once we have a good way to
+    // parse a &str out of a &[u8].
+    let name = name
+        .into_iter()
+        .map(|&c| std::char::from_u32(c.into()).expect("from char"))
+        .collect();
+    let value = value
+        .into_iter()
+        .map(|&c| std::char::from_u32(c.into()).expect("from char"))
+        .collect();
+    Ok((input, (name, value)))
+}
+
+fn is_header_char(ch: u8) -> bool {
+    match ch {
+        b'\r' | b'\n' | b':' => false,
+        _ => true,
+    }
 }
 
 impl<'a> From<(&'a [u8], nom::error::ErrorKind)> for ParseError<'a> {
@@ -93,5 +134,16 @@ mod tests {
         let (remainder, frame) = result.expect("some frame");
         assert_eq!(b"", remainder);
         assert_eq!(frame.command, Command::Connect);
+    }
+
+    #[test]
+    fn parse_connect_frame() {
+        let data = b"CONNECT\naccept-version:1.2\nlogin:guest\npasscode:guest\n\n\0";
+
+        let result = parse_frame(&*data).expect("parse");
+        let (remainder, frame) = result.expect("some frame");
+        assert_eq!(b"", remainder);
+        assert_eq!(frame.command, Command::Connect);
+        assert_eq!(frame.headers.get("login"), Some(&"guest".to_string()));
     }
 }

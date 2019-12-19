@@ -4,10 +4,10 @@ use std::fmt;
 
 use nom::{
     branch::alt,
-    bytes::streaming::{tag, take_while, take_while1},
+    bytes::streaming::tag,
     character::streaming::*,
     combinator::map,
-    multi::fold_many0,
+    multi::{fold_many0, fold_many1},
 };
 use nom::{Err, IResult};
 use thiserror::Error;
@@ -75,29 +75,24 @@ fn parse_headers(input: &[u8]) -> IResult<&[u8], Headers> {
 }
 
 fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
-    let (input, name) = take_while1(is_header_char)(input)?;
+    let (input, name) = fold_many1(parse_header_char, String::new(), |mut s, c| {
+        s.push(c);
+        s
+    })(input)?;
     let (input, _) = char(':')(input)?;
-    let (input, value) = take_while(is_header_char)(input)?;
+    let (input, value) = fold_many0(parse_header_char, String::new(), |mut s, c| {
+        s.push(c);
+        s
+    })(input)?;
     let (input, _) = newline(input)?;
 
-    // This is a horrendous hack. Replace this once we have a good way to
-    // parse a &str out of a &[u8].
-    let name = name
-        .into_iter()
-        .map(|&c| std::char::from_u32(c.into()).expect("from char"))
-        .collect();
-    let value = value
-        .into_iter()
-        .map(|&c| std::char::from_u32(c.into()).expect("from char"))
-        .collect();
     Ok((input, (name, value)))
 }
 
-fn is_header_char(ch: u8) -> bool {
-    match ch {
-        b'\r' | b'\n' | b':' => false,
-        _ => true,
-    }
+fn parse_header_char(input: &[u8]) -> IResult<&[u8], char> {
+    let (input, ch) = alt((none_of(":\\\r\n"), map(tag("\\c"), |_| ':')))(input)?;
+
+    Ok((input, ch))
 }
 
 impl<'a> From<(&'a [u8], nom::error::ErrorKind)> for ParseError<'a> {
@@ -145,5 +140,24 @@ mod tests {
         assert_eq!(b"", remainder);
         assert_eq!(frame.command, Command::Connect);
         assert_eq!(frame.headers.get("login"), Some(&"guest".to_string()));
+    }
+
+    #[test]
+    fn parse_colon_in_header_name() {
+        let data = b"CONNECT\nfoo\\cbar:yes\n\n\0";
+
+        let result = parse_frame(&*data).expect("parse");
+        let (remainder, frame) = result.expect("some frame");
+        assert_eq!(b"", remainder);
+        assert_eq!(frame.headers.get("foo:bar"), Some(&"yes".to_string()));
+    }
+    #[test]
+    fn parse_colon_in_header_value() {
+        let data = b"CONNECT\nfoo:one\\ctwo\n\n\0";
+
+        let result = parse_frame(&*data).expect("parse");
+        let (remainder, frame) = result.expect("some frame");
+        assert_eq!(b"", remainder);
+        assert_eq!(frame.headers.get("foo"), Some(&"one:two".to_string()));
     }
 }

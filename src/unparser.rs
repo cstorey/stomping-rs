@@ -223,7 +223,7 @@ mod tests {
             .or(consts(Command::Receipt))
             .or(consts(Command::Error));
 
-        let headers = collections((asciis(), asciis()));
+        let headers = collections((asciis(), asciis()).filter(|&(ref k, _)| k.len() != 0));
 
         let bodies = vecs(u8s());
         (commands, headers, bodies).map(|(command, headers, body)| Frame {

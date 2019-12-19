@@ -4,7 +4,7 @@ use std::fmt;
 
 use nom::{
     branch::alt,
-    bytes::streaming::{tag, take_till},
+    bytes::streaming::{tag, take, take_till},
     character::streaming::*,
     combinator::map,
     multi::{fold_many0, fold_many1},
@@ -36,7 +36,9 @@ fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
     let (input, headers) = parse_headers(input)?;
     let (input, _) = newline(input)?;
 
-    let (input, body) = parse_body(input)?;
+    let content_length = headers.get("content-length").and_then(|ls| ls.parse().ok());
+
+    let (input, body) = parse_body(content_length, input)?;
     let body = body.to_owned();
 
     let frame = Frame {
@@ -88,8 +90,11 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
     Ok((input, (name, value)))
 }
 
-fn parse_body(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    let (input, body) = take_till(|b| b == b'\0')(input)?;
+fn parse_body(content_length: Option<usize>, input: &[u8]) -> IResult<&[u8], &[u8]> {
+    let (input, body) = match content_length {
+        Some(len) => take(len)(input)?,
+        None => take_till(|b| b == b'\0')(input)?,
+    };
     let (input, _) = tag(b"\0")(input)?;
 
     Ok((input, body))
@@ -178,10 +183,9 @@ mod tests {
         assert_eq!(&*frame.body, &*b"wibble");
     }
 
-    #[ignore]
     #[test]
     fn parse_send_with_body_and_content_length() {
-        let data = b"SEND\ncontent-length:7\n\nfoo\0bar\n\0";
+        let data = b"SEND\ncontent-length:7\n\nfoo\0bar\0";
 
         let result = parse_frame(&*data).expect("parse");
         let (remainder, frame) = result.expect("some frame");

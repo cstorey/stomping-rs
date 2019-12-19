@@ -40,8 +40,8 @@ fn encode_keepalive(buf: &mut BytesMut) -> Result<()> {
     Ok(())
 }
 
-fn encode_header_label(buf: &mut BytesMut, label: &str) {
-    for c in label.as_bytes() {
+fn encode_header_label(buf: &mut BytesMut, label: &[u8]) {
+    for c in label {
         match *c {
             b':' => buf.put_slice(b"\\c"),
             b'\r' => buf.put_slice(b"\\r"),
@@ -280,9 +280,9 @@ mod tests {
         )
     }
 
-    fn asciis() -> impl Generator<Item = String> {
+    fn octet_vecs() -> impl Generator<Item = Vec<u8>> {
         use suppositions::generators::*;
-        collections(u8s().map(|c| std::char::from_u32(c as u32).expect("char")))
+        collections(u8s())
     }
 
     fn frames() -> impl Generator<Item = Frame> {
@@ -298,7 +298,7 @@ mod tests {
             .or(consts(Command::Receipt))
             .or(consts(Command::Error));
 
-        let headers = collections((asciis(), asciis()).filter(|&(ref k, _)| k.len() != 0));
+        let headers = collections((octet_vecs(), octet_vecs()).filter(|&(ref k, _)| k.len() != 0));
 
         let bodies = vecs(u8s());
         (commands, headers, bodies).map(|(command, headers, body)| Frame {

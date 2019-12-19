@@ -62,10 +62,11 @@ impl AckMode {
     }
 }
 
-pub type Headers = BTreeMap<String, String>;
+pub type Headers = BTreeMap<Vec<u8>, Vec<u8>>;
 
-fn parse_keepalive(headervalue: Option<&str>) -> Result<(Option<Duration>, Option<Duration>)> {
+fn parse_keepalive(headervalue: Option<&[u8]>) -> Result<(Option<Duration>, Option<Duration>)> {
     if let Some(sxsy) = headervalue {
+        let sxsy = std::str::from_utf8(sxsy)?;
         info!("heartbeat: theirs:{:?}", sxsy);
         let mut it = sxsy.trim().splitn(2, ',');
         let sx = Duration::from_millis(it.next().ok_or(StompError::ProtocolError)?.parse()?);
@@ -97,14 +98,20 @@ impl Client {
         let mut conn = connection::wrap(conn);
 
         let mut conn_headers = BTreeMap::new();
-        conn_headers.insert("accept-version".to_string(), "1.2".to_string());
+        conn_headers.insert(
+            "accept-version".as_bytes().to_vec(),
+            "1.2".as_bytes().to_vec(),
+        );
         if let &Some(ref duration) = &keepalive {
             let millis = duration.as_secs() * 1000 + duration.subsec_nanos() as u64 / 1000_000;
-            conn_headers.insert("heart-beat".to_string(), format!("{},{}", millis, millis));
+            conn_headers.insert(
+                "heart-beat".as_bytes().to_vec(),
+                format!("{},{}", millis, millis).as_bytes().to_vec(),
+            );
         }
         if let Some((user, pass)) = credentials {
-            conn_headers.insert("login".to_string(), user.to_string());
-            conn_headers.insert("passcode".to_string(), pass.to_string());
+            conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
+            conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
         }
         trace!("Sending connect frame");
         conn.send(FrameOrKeepAlive::Frame(Frame {
@@ -142,7 +149,7 @@ impl Client {
             return Err(StompError::ProtocolError.into());
         }
 
-        let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat").map(|s| &**s))?;
+        let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
         debug!("Proposed keepalives: {:?}/{:?}", sx, sy);
 
         // TODO: Keepalives and such
@@ -152,9 +159,12 @@ impl Client {
 
     pub async fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
         let mut h = BTreeMap::new();
-        h.insert("destination".to_string(), destination.to_string());
-        h.insert("id".to_string(), id.to_string());
-        h.insert("ack".to_string(), mode.as_str().to_string());
+        h.insert(
+            "destination".as_bytes().to_vec(),
+            destination.as_bytes().to_vec(),
+        );
+        h.insert("id".as_bytes().to_vec(), id.as_bytes().to_vec());
+        h.insert("ack".as_bytes().to_vec(), mode.as_str().as_bytes().to_vec());
         self.send(Frame {
             command: Command::Subscribe,
             headers: h,
@@ -165,8 +175,14 @@ impl Client {
     }
     pub async fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         let mut h = BTreeMap::new();
-        h.insert("destination".to_string(), destination.to_string());
-        h.insert("content-length".to_string(), format!("{}", body.len()));
+        h.insert(
+            "destination".as_bytes().to_vec(),
+            destination.as_bytes().to_vec(),
+        );
+        h.insert(
+            "content-length".as_bytes().to_vec(),
+            format!("{}", body.len()).as_bytes().to_vec(),
+        );
         self.send(Frame {
             command: Command::Send,
             headers: h,
@@ -178,8 +194,10 @@ impl Client {
 
     pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
         let mut h = BTreeMap::new();
-        let mid = headers.get("ack").ok_or(StompError::NoAckHeader)?;
-        h.insert("id".to_string(), mid.to_string());
+        let mid = headers
+            .get("ack".as_bytes())
+            .ok_or(StompError::NoAckHeader)?;
+        h.insert("id".as_bytes().to_vec(), mid.clone());
         self.send(Frame {
             command: Command::Ack,
             headers: h,
@@ -216,7 +234,7 @@ impl Client {
 
     pub async fn disconnect(mut self) -> Result<()> {
         let mut h = BTreeMap::new();
-        h.insert("receipt".to_string(), "42".to_string());
+        h.insert("receipt".as_bytes().to_vec(), "42".as_bytes().to_vec());
         self.send(Frame {
             command: Command::Disconnect,
             headers: h,
@@ -307,7 +325,7 @@ mod test {
     fn keepalives_parse_zero_as_none_0() {
         env_logger::try_init().unwrap_or_default();
         assert_eq!(
-            parse_keepalive(Some("0,0")).expect("parse_keepalive"),
+            parse_keepalive(Some(b"0,0")).expect("parse_keepalive"),
             (None, None)
         );
     }
@@ -316,7 +334,7 @@ mod test {
     fn keepalives_parse_zero_as_none_1() {
         env_logger::try_init().unwrap_or_default();
         assert_eq!(
-            parse_keepalive(Some("0,42")).expect("parse_keepalive"),
+            parse_keepalive(Some(b"0,42")).expect("parse_keepalive"),
             (None, Some(Duration::from_millis(42)))
         );
     }
@@ -325,7 +343,7 @@ mod test {
     fn keepalives_parse_zero_as_none_2() {
         env_logger::try_init().unwrap_or_default();
         assert_eq!(
-            parse_keepalive(Some("42,0")).expect("parse_keepalive"),
+            parse_keepalive(Some(b"42,0")).expect("parse_keepalive"),
             (Some(Duration::from_millis(42)), None)
         );
     }

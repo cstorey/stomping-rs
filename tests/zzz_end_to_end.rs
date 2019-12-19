@@ -103,7 +103,10 @@ async fn can_encode_headers_correctly() {
 
     let frame = client.consume_next().await.expect("consume_next");
     println!("h: {:?}", frame.headers);
-    assert_eq!(frame.headers["destination"], queue);
+    assert_eq!(
+        std::str::from_utf8(&frame.headers["destination".as_bytes()]).expect("from utf8"),
+        queue
+    );
     client.disconnect().await.expect("disconnect");
 }
 

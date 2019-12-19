@@ -23,6 +23,8 @@ pub enum StompError {
     ParseInt(#[from] std::num::ParseIntError),
     #[error("parse integer")]
     ProtocolParse(#[from] ParseError),
+    #[error("Parse utf8")]
+    Utf8(#[from] std::str::Utf8Error),
 }
 
 #[cfg(never)]

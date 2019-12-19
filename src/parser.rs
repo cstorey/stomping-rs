@@ -6,9 +6,9 @@ use nom::{
     bytes::streaming::{tag, take, take_till},
     character::streaming::*,
     combinator::map,
-    multi::{fold_many0, fold_many1},
+    multi::{fold_many0, many0, many1},
 };
-use nom::{Err, IResult};
+use nom::{error::ErrorKind, Err, IResult};
 use thiserror::Error;
 
 use crate::{Command, Frame, FrameOrKeepAlive, Headers};
@@ -58,11 +58,15 @@ fn parse_keepalive(input: &[u8]) -> IResult<&[u8], ()> {
 
 fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
     let (input, command) = parse_command(input)?;
-    // headers should go here.
+
     let (input, headers) = parse_headers(input)?;
+
     let (input, _) = newline(input)?;
 
-    let content_length = headers.get("content-length").and_then(|ls| ls.parse().ok());
+    let content_length = headers
+        .get("content-length".as_bytes())
+        .and_then(|v| std::str::from_utf8(&v).ok())
+        .and_then(|ls| ls.parse().ok());
 
     let (input, body) = parse_body(content_length, input)?;
     let body = body.to_owned();
@@ -100,16 +104,12 @@ fn parse_headers(input: &[u8]) -> IResult<&[u8], Headers> {
     Ok((input, headers))
 }
 
-fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
-    let (input, name) = fold_many1(parse_header_char, String::new(), |mut s, c| {
-        s.push(c);
-        s
-    })(input)?;
+fn parse_header(input: &[u8]) -> IResult<&[u8], (Vec<u8>, Vec<u8>)> {
+    let (input, name) = many1(parse_header_char)(input)?;
     let (input, _) = char(':')(input)?;
-    let (input, value) = fold_many0(parse_header_char, String::new(), |mut s, c| {
-        s.push(c);
-        s
-    })(input)?;
+
+    let (input, value) = many0(parse_header_char)(input)?;
+
     let (input, _) = newline(input)?;
 
     Ok((input, (name, value)))
@@ -125,10 +125,27 @@ fn parse_body(content_length: Option<usize>, input: &[u8]) -> IResult<&[u8], &[u
     Ok((input, body))
 }
 
-fn parse_header_char(input: &[u8]) -> IResult<&[u8], char> {
-    let (input, ch) = alt((none_of(":\\\r\n"), map(tag("\\c"), |_| ':')))(input)?;
-
-    Ok((input, ch))
+fn parse_header_char(input: &[u8]) -> IResult<&[u8], u8> {
+    match input
+        .split_first()
+        .ok_or(nom::Err::Incomplete(nom::Needed::Size(1)))?
+    {
+        (b'\n', input) => Err(nom::Err::Error((input, ErrorKind::Char))),
+        (b':', input) => Err(nom::Err::Error((input, ErrorKind::Char))),
+        (b'\\', input) => {
+            match input
+                .split_first()
+                .ok_or(nom::Err::Incomplete(nom::Needed::Size(1)))?
+            {
+                (b'c', input) => Ok((input, b':')),
+                (b'\\', input) => Ok((input, b'\\')),
+                (b'r', input) => Ok((input, b'\r')),
+                (b'n', input) => Ok((input, b'\n')),
+                _ => Err(nom::Err::Error((input, ErrorKind::Char))),
+            }
+        }
+        (ch, input) => Ok((input, *ch)),
+    }
 }
 
 impl<'a> From<(&'a [u8], nom::error::ErrorKind)> for ParseError {
@@ -166,6 +183,8 @@ impl fmt::Display for ParseError {
 
 #[cfg(test)]
 mod tests {
+    use bytes::BufMut;
+
     use super::*;
 
     #[test]
@@ -188,27 +207,30 @@ mod tests {
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Connect);
-        assert_eq!(frame.headers.get("login"), Some(&"guest".to_string()));
+        assert_eq!(
+            frame.headers.get("login".as_bytes()),
+            Some(&"guest".as_bytes().to_vec())
+        );
     }
 
     #[test]
-    fn parse_colon_in_header_name() {
-        let mut data = BytesMut::from(b"CONNECT\nfoo\\cbar:yes\n\n\0" as &[u8]);
+    fn parse_escapes_in_headers() {
+        let mut data = BytesMut::from(b"CONNECT\n" as &[u8]);
+        data.put_slice(b"colon\\c:cr\r\n" as &[u8]);
+        data.put_slice(b"slash\\\\:nl\\n\n" as &[u8]);
+        data.put_slice(b"\n\0" as &[u8]);
 
         let result = parse_frame(&mut data).expect("parse");
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
-        assert_eq!(frame.headers.get("foo:bar"), Some(&"yes".to_string()));
-    }
-
-    #[test]
-    fn parse_colon_in_header_value() {
-        let mut data = BytesMut::from(b"CONNECT\nfoo:one\\ctwo\n\n\0" as &[u8]);
-
-        let result = parse_frame(&mut data).expect("parse");
-        let frame = result.expect("some frame").unwrap_frame();
-        assert_eq!(b"" as &[u8], &data);
-        assert_eq!(frame.headers.get("foo"), Some(&"one:two".to_string()));
+        assert_eq!(
+            frame.headers.get("colon:".as_bytes()),
+            Some(&"cr\r".as_bytes().to_vec())
+        );
+        assert_eq!(
+            frame.headers.get("slash\\".as_bytes()),
+            Some(&"nl\n".as_bytes().to_vec())
+        );
     }
 
     #[test]

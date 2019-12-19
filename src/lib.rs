@@ -9,6 +9,8 @@ use std::time::{Duration, SystemTime};
 mod errors;
 use crate::errors::*;
 
+mod parser;
+
 pub struct Client {
     wr: BufWriter<TcpStream>,
     rdr: BufReader<TcpStream>,

@@ -11,7 +11,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, SystemTime};
 
 mod errors;
-use errors::*;
+use crate::errors::*;
 
 pub struct Client {
     wr: BufWriter<TcpStream>,

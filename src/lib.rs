@@ -74,12 +74,8 @@ fn parse_keepalive(headervalue: Option<&str>) -> Fallible<(Option<Duration>, Opt
     if let Some(sxsy) = headervalue {
         info!("heartbeat: theirs:{:?}", sxsy);
         let mut it = sxsy.trim().splitn(2, ',');
-        let sx = Duration::from_millis(try!(
-            try!(it.next().ok_or(StompError::ProtocolError)).parse()
-        ));
-        let sy = Duration::from_millis(try!(
-            try!(it.next().ok_or(StompError::ProtocolError)).parse()
-        ));
+        let sx = Duration::from_millis(it.next().ok_or(StompError::ProtocolError)?.parse()?);
+        let sy = Duration::from_millis(it.next().ok_or(StompError::ProtocolError)?.parse()?);
         info!("heartbeat: theirs:{:?}", (&sx, &sy));
 
         Ok((some_non_zero(sx), some_non_zero(sy)))
@@ -103,10 +99,10 @@ impl Client {
         keepalive: Option<Duration>,
     ) -> Fallible<Self> {
         let start = SystemTime::now();
-        let wr = try!(TcpStream::connect(a));
-        debug!("connected to: {:?}", try!(wr.peer_addr()));
-        try!(wr.set_read_timeout(keepalive.map(|d| d * 3)));
-        let rdr = try!(wr.try_clone());
+        let wr = TcpStream::connect(a)?;
+        debug!("connected to: {:?}", wr.peer_addr()?);
+        wr.set_read_timeout(keepalive.map(|d| d * 3))?;
+        let rdr = wr.try_clone()?;
         let mut conn_headers = BTreeMap::new();
         let mut client = Client {
             wr: BufWriter::new(wr),
@@ -122,9 +118,9 @@ impl Client {
             conn_headers.insert("login".to_string(), user.to_string());
             conn_headers.insert("passcode".to_string(), pass.to_string());
         }
-        try!(client.send("CONNECT", conn_headers, &[]));
+        client.send("CONNECT", conn_headers, &[])?;
 
-        let (cmd, hdrs, body) = try!(client.read_frame());
+        let (cmd, hdrs, body) = client.read_frame()?;
         if &cmd == "ERROR" {
             let body = String::from_utf8_lossy(&body).into_owned();
             warn!("Error response from server: {:?}: {:?}", cmd, hdrs);
@@ -134,10 +130,10 @@ impl Client {
             return Err(StompError::ProtocolError.into());
         }
 
-        let (sx, sy) = try!(parse_keepalive(hdrs.get("heart-beat").map(|s| &**s)));
+        let (sx, sy) = parse_keepalive(hdrs.get("heart-beat").map(|s| &**s))?;
         client.pace = PaceMaker::new(keepalive, sx, sy, start);
 
-        try!(client.reset_timeouts(None));
+        client.reset_timeouts(None)?;
         Ok(client)
     }
 
@@ -152,8 +148,8 @@ impl Client {
             (None, None) => None,
         };
 
-        try!(self.wr.get_mut().set_read_timeout(timeout));
-        try!(self.rdr.get_mut().set_read_timeout(timeout));
+        self.wr.get_mut().set_read_timeout(timeout)?;
+        self.rdr.get_mut().set_read_timeout(timeout)?;
         Ok(())
     }
 
@@ -162,26 +158,26 @@ impl Client {
         h.insert("destination".to_string(), destination.to_string());
         h.insert("id".to_string(), id.to_string());
         h.insert("ack".to_string(), mode.as_str().to_string());
-        try!(self.send("SUBSCRIBE", h, b""));
+        self.send("SUBSCRIBE", h, b"")?;
         Ok(())
     }
     pub fn publish(&mut self, destination: &str, body: &[u8]) -> Fallible<()> {
         let mut h = BTreeMap::new();
         h.insert("destination".to_string(), destination.to_string());
         h.insert("content-length".to_string(), format!("{}", body.len()));
-        try!(self.send("SEND", h, body));
+        self.send("SEND", h, body)?;
         Ok(())
     }
     pub fn ack(&mut self, headers: &Headers) -> Fallible<()> {
         let mut h = BTreeMap::new();
-        let mid = try!(headers.get("ack").ok_or(StompError::NoAckHeader));
+        let mid = headers.get("ack").ok_or(StompError::NoAckHeader)?;
         h.insert("id".to_string(), mid.to_string());
-        try!(self.send("ACK", h, &[]));
+        self.send("ACK", h, &[])?;
         Ok(())
     }
 
     pub fn consume_next(&mut self) -> Fallible<(Headers, Vec<u8>)> {
-        let (cmd, hdrs, body) = try!(self.read_frame());
+        let (cmd, hdrs, body) = self.read_frame()?;
         if &cmd != "MESSAGE" {
             warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
             return Err(StompError::ProtocolError.into());
@@ -194,7 +190,7 @@ impl Client {
         &mut self,
         timeout: Duration,
     ) -> Fallible<Option<(Headers, Vec<u8>)>> {
-        if let Some((cmd, hdrs, body)) = try!(self.maybe_read_frame(timeout)) {
+        if let Some((cmd, hdrs, body)) = self.maybe_read_frame(timeout)? {
             if &cmd != "MESSAGE" {
                 warn!("Bad message from server: {:?}: {:?}", cmd, hdrs);
                 return Err(StompError::ProtocolError.into());
@@ -209,10 +205,10 @@ impl Client {
     pub fn disconnect(mut self) -> Fallible<()> {
         let mut h = BTreeMap::new();
         h.insert("receipt".to_string(), "42".to_string());
-        try!(self.send("DISCONNECT", h, b""));
+        self.send("DISCONNECT", h, b"")?;
 
         loop {
-            let (cmd, hdrs, _) = try!(self.read_frame());
+            let (cmd, hdrs, _) = self.read_frame()?;
             if &cmd == "RECEIPT" {
                 break;
             } else {
@@ -229,22 +225,17 @@ impl Client {
         headers: BTreeMap<String, String>,
         body: &[u8],
     ) -> Fallible<()> {
-        try!(writeln!(self.wr, "{}", command));
+        writeln!(self.wr, "{}", command)?;
         for (k, v) in headers {
-            try!(writeln!(
-                self.wr,
-                "{}:{}",
-                encode_header(&k),
-                encode_header(&v)
-            ));
+            writeln!(self.wr, "{}:{}", encode_header(&k), encode_header(&v))?;
         }
-        try!(writeln!(self.wr, ""));
+        writeln!(self.wr, "")?;
 
-        try!(self.wr.write_all(body));
-        try!(self.wr.write(b"\0"));
-        try!(self.wr.flush());
+        self.wr.write_all(body)?;
+        self.wr.write(b"\0")?;
+        self.wr.flush()?;
         self.pace.write_observed(SystemTime::now());
-        try!(self.reset_timeouts(None));
+        self.reset_timeouts(None)?;
         Ok(())
     }
 
@@ -255,25 +246,25 @@ impl Client {
                 return Ok(None);
             }
 
-            try!(self.reset_timeouts(timeout));
+            self.reset_timeouts(timeout)?;
             let result = self.rdr.read_line(buf);
             debug!("read line result: {:?}", result);
             match result {
                 Ok(_) => {
                     self.pace.read_observed(SystemTime::now());
-                    try!(self.reset_timeouts(None));
+                    self.reset_timeouts(None)?;
                     return Ok(Some(()));
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let action = try!(self.pace.handle_read_timeout(SystemTime::now()));
+                    let action = self.pace.handle_read_timeout(SystemTime::now())?;
                     debug!("Would block: {:?}; timeout? {:?}", action, timeout);
                     match action {
-                        BeatAction::Retry => try!(self.reset_timeouts(None)),
+                        BeatAction::Retry => self.reset_timeouts(None)?,
                         BeatAction::SendClientHeart => {
-                            try!(self.wr.write_all(b"\n"));
-                            try!(self.wr.flush());
+                            self.wr.write_all(b"\n")?;
+                            self.wr.flush()?;
                             self.pace.write_observed(SystemTime::now());
-                            try!(self.reset_timeouts(None));
+                            self.reset_timeouts(None)?;
                             debug!("Sent heartbeat");
                         }
                         BeatAction::PeerFailed => return Err(StompError::PeerFailed.into()),
@@ -295,13 +286,13 @@ impl Client {
         let deadline = start + timeout;
         while buf.trim().is_empty() {
             buf.clear();
-            let elapsed = try!(start.elapsed());
+            let elapsed = start.elapsed()?;
             if elapsed >= timeout {
                 debug!("Timeout expired");
                 return Ok(None);
             }
             debug!("Timeout Remaining: {:?}", timeout - elapsed);
-            if let Some(()) = try!(self.read_line(&mut buf, Some(deadline))) {
+            if let Some(()) = self.read_line(&mut buf, Some(deadline))? {
                 trace!("Read command line: {:?}", buf);
                 assert!(!buf.is_empty());
             } else {
@@ -316,7 +307,7 @@ impl Client {
         let mut buf = String::new();
         while buf.trim().is_empty() {
             buf.clear();
-            try!(self.read_line(&mut buf, None));
+            self.read_line(&mut buf, None)?;
             trace!("Read command line: {:?}", buf);
             assert!(!buf.is_empty());
         }
@@ -330,28 +321,28 @@ impl Client {
 
         // Given we are half way into a frame, we can be reasonably sure that
         // more data is coming soon, so reset our timeouts.
-        try!(self.reset_timeouts(None));
+        self.reset_timeouts(None)?;
         loop {
             buf.clear();
-            try!(self.rdr.read_line(&mut buf));
+            self.rdr.read_line(&mut buf)?;
             trace!("Read header line: {:?}", buf);
             if buf == "\n" {
                 break;
             }
             let mut it = buf.trim().splitn(2, ':');
-            let name = try!(it.next().ok_or(StompError::ProtocolError));
-            let value = try!(it.next().ok_or(StompError::ProtocolError));
+            let name = it.next().ok_or(StompError::ProtocolError)?;
+            let value = it.next().ok_or(StompError::ProtocolError)?;
             headers.insert(decode_header(name), decode_header(value));
         }
         trace!("Reading body");
         let mut buf = Vec::new();
         if let Some(lenstr) = headers.get("content-length") {
-            let nbytes: u64 = try!(lenstr.parse());
+            let nbytes: u64 = lenstr.parse()?;
             trace!("Read bytes: {}", nbytes);
-            try!(self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut buf));
+            self.rdr.by_ref().take(nbytes + 1).read_to_end(&mut buf)?;
         } else {
             trace!("Read until nul");
-            try!(self.rdr.read_until(b'\0', &mut buf));
+            self.rdr.read_until(b'\0', &mut buf)?;
         }
         trace!("Read body: {:?}", buf);
         if buf.pop() != Some(b'\0') {
@@ -436,7 +427,7 @@ impl PaceMaker {
     fn handle_read_timeout(&mut self, at: SystemTime) -> Fallible<BeatAction> {
         debug!("handle_read_timeout: {:?} at {:?}", self, &at);
         if let (mark, Some(interval)) = (self.last_observed_write, self.client_to_server) {
-            let duration = try!(at.duration_since(mark));
+            let duration = at.duration_since(mark)?;
             debug!(
                 "consider sending heartbeat after: {:?} - {:?} -> {:?}",
                 mark, at, duration
@@ -448,7 +439,7 @@ impl PaceMaker {
         }
 
         if let (mark, Some(interval)) = (self.last_observed_read, self.server_to_client) {
-            let duration = try!(at.duration_since(mark));
+            let duration = at.duration_since(mark)?;
             debug!(
                 "considering if alive after: {:?} - {:?} -> {:?}",
                 mark, at, duration

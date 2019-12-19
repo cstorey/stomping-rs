@@ -58,7 +58,18 @@ async fn main() {
 
     loop {
         let frame = client.consume_next().await.expect("consume_next");
-        println!("{:?}", frame.headers);
+        for (i, (k, v)) in frame.headers.iter().enumerate() {
+            if i != 0 {
+                print!(", ");
+            }
+            print!(
+                "{}={}",
+                String::from_utf8_lossy(k),
+                String::from_utf8_lossy(v)
+            );
+        }
+        println!();
         println!("{:?}", String::from_utf8_lossy(&frame.body));
+        println!();
     }
 }

@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use bytes::{Buf, BytesMut};
 use nom::{
     branch::alt,
     bytes::streaming::{tag, take, take_till},
@@ -22,12 +23,25 @@ pub struct ParseError {
 }
 
 // See grammar described at https://stomp.github.io/stomp-specification-1.2.html#Augmented_BNF
-pub(crate) fn parse_frame(input: &[u8]) -> Result<Option<(&[u8], Frame)>, ParseError> {
+pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<Frame>, ParseError> {
     match parse_inner(input) {
-        Ok((remainder, frame)) => Ok(Some((remainder, frame))),
-        Err(Err::Incomplete(_)) => Ok(None),
-        Err(Err::Error(e)) => Err(std::borrow::ToOwned::to_owned(&e).into()),
-        Err(Err::Failure(e)) => Err(e.to_owned().into()),
+        Ok((remainder, frame)) => {
+            let consumed = input.len() - remainder.len();
+
+            assert!(
+                consumed <= input.len(),
+                "consumed:{}; len:{}",
+                consumed,
+                input.len()
+            );
+
+            input.advance(consumed);
+
+            Ok(Some(frame))
+        }
+        Err(Err::Incomplete(_)) => return Ok(None),
+        Err(Err::Error(e)) => return Err(e.into()),
+        Err(Err::Failure(e)) => return Err(e.into()),
     }
 }
 
@@ -145,63 +159,65 @@ mod tests {
 
     #[test]
     fn parse_connect_frame_no_headers() {
-        let data = b"CONNECT\n\n\0";
+        let mut data = BytesMut::from(b"CONNECT\n\n\0" as &[u8]);
 
-        let result = parse_frame(&*data).expect("parse");
-        let (remainder, frame) = result.expect("some frame");
-        assert_eq!(b"", remainder);
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Connect);
     }
 
     #[test]
     fn parse_connect_frame() {
-        let data = b"CONNECT\naccept-version:1.2\nlogin:guest\npasscode:guest\n\n\0";
+        let mut data = BytesMut::from(
+            b"CONNECT\naccept-version:1.2\nlogin:guest\npasscode:guest\n\n\0" as &[u8],
+        );
 
-        let result = parse_frame(&*data).expect("parse");
-        let (remainder, frame) = result.expect("some frame");
-        assert_eq!(b"", remainder);
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Connect);
         assert_eq!(frame.headers.get("login"), Some(&"guest".to_string()));
     }
 
     #[test]
     fn parse_colon_in_header_name() {
-        let data = b"CONNECT\nfoo\\cbar:yes\n\n\0";
+        let mut data = BytesMut::from(b"CONNECT\nfoo\\cbar:yes\n\n\0" as &[u8]);
 
-        let result = parse_frame(&*data).expect("parse");
-        let (remainder, frame) = result.expect("some frame");
-        assert_eq!(b"", remainder);
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.headers.get("foo:bar"), Some(&"yes".to_string()));
     }
 
     #[test]
     fn parse_colon_in_header_value() {
-        let data = b"CONNECT\nfoo:one\\ctwo\n\n\0";
+        let mut data = BytesMut::from(b"CONNECT\nfoo:one\\ctwo\n\n\0" as &[u8]);
 
-        let result = parse_frame(&*data).expect("parse");
-        let (remainder, frame) = result.expect("some frame");
-        assert_eq!(b"", remainder);
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.headers.get("foo"), Some(&"one:two".to_string()));
     }
 
     #[test]
     fn parse_send_with_body() {
-        let data = b"SEND\n\nwibble\0";
+        let mut data = BytesMut::from(b"SEND\n\nwibble\0" as &[u8]);
 
-        let result = parse_frame(&*data).expect("parse");
-        let (remainder, frame) = result.expect("some frame");
-        assert_eq!(b"", remainder);
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Send);
         assert_eq!(&*frame.body, &*b"wibble");
     }
 
     #[test]
     fn parse_send_with_body_and_content_length() {
-        let data = b"SEND\ncontent-length:7\n\nfoo\0bar\0";
+        let mut data = BytesMut::from(b"SEND\ncontent-length:7\n\nfoo\0bar\0" as &[u8]);
 
-        let result = parse_frame(&*data).expect("parse");
-        let (remainder, frame) = result.expect("some frame");
-        assert_eq!(b"", remainder);
+        let result = parse_frame(&mut data).expect("parse");
+        let frame = result.expect("some frame");
+        assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Send);
         assert_eq!(&*frame.body, &*b"foo\0bar");
     }

@@ -189,13 +189,13 @@ mod tests {
             let mut buf = BytesMut::new();
 
             encode_frame(&mut buf, &frame).expect("encode frame");
-            let (remaining, parsed) = parse_frame(&buf).expect("parse").expect("some frame");
+            let parsed = parse_frame(&mut buf).expect("parse").expect("some frame");
 
             assert_eq!(frame, parsed);
             assert!(
-                remaining.len() == 0,
+                buf.len() == 0,
                 "Remaining should be empty: {}",
-                String::from_utf8_lossy(remaining)
+                String::from_utf8_lossy(&buf)
             )
         })
     }
@@ -214,13 +214,13 @@ mod tests {
         encode_frame(&mut buf, &frame).expect("encode frame");
         println!("Encoded: {:?}", String::from_utf8_lossy(&buf));
 
-        let (remaining, parsed) = parse_frame(&buf).expect("parse").expect("some frame");
+        let parsed = parse_frame(&mut buf).expect("parse").expect("some frame");
 
         assert_eq!(frame, parsed);
         assert!(
-            remaining.len() == 0,
+            buf.len() == 0,
             "Remaining should be empty: {}",
-            String::from_utf8_lossy(remaining)
+            String::from_utf8_lossy(&buf)
         )
     }
 
@@ -238,13 +238,13 @@ mod tests {
         encode_frame(&mut buf, &frame).expect("encode frame");
         println!("Encoded: {:?}", String::from_utf8_lossy(&buf));
 
-        let (remaining, parsed) = parse_frame(&buf).expect("parse").expect("some frame");
+        let parsed = parse_frame(&mut buf).expect("parse").expect("some frame");
 
         assert_eq!(frame, parsed);
         assert!(
-            remaining.len() == 0,
+            buf.len() == 0,
             "Remaining should be empty: {}",
-            String::from_utf8_lossy(remaining)
+            String::from_utf8_lossy(&buf)
         )
     }
 

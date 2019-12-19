@@ -4,7 +4,7 @@ use std::fmt;
 
 use nom::{
     branch::alt,
-    bytes::streaming::tag,
+    bytes::streaming::{tag, take_till},
     character::streaming::*,
     combinator::map,
     multi::{fold_many0, fold_many1},
@@ -35,10 +35,9 @@ fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
     // headers should go here.
     let (input, headers) = parse_headers(input)?;
     let (input, _) = newline(input)?;
-    // Body should be parsed here.
-    let body = Vec::new();
 
-    let (input, _) = tag(b"\0")(input)?;
+    let (input, body) = parse_body(input)?;
+    let body = body.to_owned();
 
     let frame = Frame {
         command,
@@ -87,6 +86,13 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
     let (input, _) = newline(input)?;
 
     Ok((input, (name, value)))
+}
+
+fn parse_body(input: &[u8]) -> IResult<&[u8], &[u8]> {
+    let (input, body) = take_till(|b| b == b'\0')(input)?;
+    let (input, _) = tag(b"\0")(input)?;
+
+    Ok((input, body))
 }
 
 fn parse_header_char(input: &[u8]) -> IResult<&[u8], char> {
@@ -159,5 +165,28 @@ mod tests {
         let (remainder, frame) = result.expect("some frame");
         assert_eq!(b"", remainder);
         assert_eq!(frame.headers.get("foo"), Some(&"one:two".to_string()));
+    }
+
+    #[test]
+    fn parse_send_with_body() {
+        let data = b"SEND\n\nwibble\0";
+
+        let result = parse_frame(&*data).expect("parse");
+        let (remainder, frame) = result.expect("some frame");
+        assert_eq!(b"", remainder);
+        assert_eq!(frame.command, Command::Send);
+        assert_eq!(&*frame.body, &*b"wibble");
+    }
+
+    #[ignore]
+    #[test]
+    fn parse_send_with_body_and_content_length() {
+        let data = b"SEND\ncontent-length:7\n\nfoo\0bar\n\0";
+
+        let result = parse_frame(&*data).expect("parse");
+        let (remainder, frame) = result.expect("some frame");
+        assert_eq!(b"", remainder);
+        assert_eq!(frame.command, Command::Send);
+        assert_eq!(&*frame.body, &*b"foo\0bar");
     }
 }

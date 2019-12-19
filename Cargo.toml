@@ -10,7 +10,7 @@ thiserror = "1.0.9"
 nom = "5.0.1"
 bytes = "0.5.3"
 maplit = "1.0.2"
-tokio = {version="0.2.5", features=["macros", "rt-core", "tcp", "dns"]}
+tokio = {version="0.2.5"}
 futures = "0.3.1"
 tokio-util = {version= "0.2.0", features=["codec"]}
 
@@ -20,6 +20,7 @@ env_logger = "0.7.0"
 url = "2.0.0"
 uuid = { version = "0.8.0", features = ["v4"] }
 suppositions = "0.1.4"
+tokio = {version="0.2.5", features=["macros", "rt-core", "tcp", "dns"]}
 
 [features]
 # To skip end to end tests on CI

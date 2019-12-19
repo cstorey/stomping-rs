@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use crate::parser::ParseError;
 use crate::Frame;
 
 pub type Result<T> = std::result::Result<T, StompError>;
@@ -20,6 +21,8 @@ pub enum StompError {
     Io(#[from] std::io::Error),
     #[error("parse integer")]
     ParseInt(#[from] std::num::ParseIntError),
+    #[error("parse integer")]
+    ProtocolParse(#[from] ParseError),
 }
 
 #[cfg(never)]

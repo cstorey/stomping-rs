@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use std::fmt;
 
 use bytes::{Buf, BytesMut};

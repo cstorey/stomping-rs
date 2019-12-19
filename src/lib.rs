@@ -12,6 +12,7 @@ mod errors;
 use crate::errors::*;
 use crate::unparser::encode_frame;
 
+mod connection;
 mod parser;
 mod unparser;
 

@@ -221,7 +221,6 @@ mod tests {
         assert_eq!(&*"\n", std::str::from_utf8(&buf).expect("from utf8"));
     }
 
-    #[ignore]
     #[test]
     fn should_round_trip_frames_without_content_length() {
         use crate::parser::parse_frame;

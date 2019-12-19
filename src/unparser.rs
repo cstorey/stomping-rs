@@ -46,6 +46,7 @@ fn encode_header_label(buf: &mut BytesMut, label: &[u8]) {
             b':' => buf.put_slice(b"\\c"),
             b'\r' => buf.put_slice(b"\\r"),
             b'\n' => buf.put_slice(b"\\n"),
+            b'\\' => buf.put_slice(b"\\\\"),
             _ => buf.put_u8(*c),
         }
     }
@@ -143,6 +144,24 @@ mod tests {
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
+
+    #[test]
+    fn should_encode_slash_in_header() {
+        let frame = Frame {
+            command: Command::Send,
+            headers: btreemap! {"header".into() => "\\".into()},
+            body: Vec::new(),
+        };
+        let mut buf = BytesMut::new();
+
+        encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
+
+        assert_eq!(
+            &*"SEND\nheader:\\\\\n\n\0",
+            std::str::from_utf8(&buf).expect("from utf8")
+        );
+    }
+
     #[test]
     fn should_encode_return_in_value() {
         let frame = Frame {

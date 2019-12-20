@@ -25,6 +25,10 @@ pub enum StompError {
     ProtocolParse(#[from] ParseError),
     #[error("Parse utf8")]
     Utf8(#[from] std::str::Utf8Error),
+    #[error("Client dropped")]
+    ClientDropped,
+    #[error("Connection dropped")]
+    ConnectionDropped(#[from] futures::channel::mpsc::SendError),
 }
 
 #[cfg(never)]

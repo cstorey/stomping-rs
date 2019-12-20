@@ -4,9 +4,9 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 
+use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{sink::SinkExt, stream::StreamExt};
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio_util::codec::Framed;
 
 mod errors;
 use crate::errors::*;
@@ -18,7 +18,8 @@ mod parser;
 mod unparser;
 
 pub struct Client {
-    inner: Framed<TcpStream, connection::StompCodec>,
+    c2s: Sender<Frame>,
+    s2c: Receiver<Frame>,
 }
 
 pub enum AckMode {
@@ -137,10 +138,17 @@ pub async fn connect<A: ToSocketAddrs>(
 
     let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
     debug!("Proposed keepalives: {:?}/{:?}", sx, sy);
+    #[cfg(never)]
+    {}
 
+    let (c2s_tx, c2s_rx) = channel(1);
+    let (s2c_tx, s2c_rx) = channel(1);
     // TODO: Keepalives and such
-    let client = Client { inner: conn };
-    let mux = Connection {};
+    let client = Client {
+        c2s: c2s_tx,
+        s2c: s2c_rx,
+    };
+    let mux = Connection::new(conn, c2s_rx, s2c_tx);
     Ok((mux, client))
 }
 
@@ -194,12 +202,14 @@ impl Client {
             "content-length".as_bytes().to_vec(),
             format!("{}", body.len()).as_bytes().to_vec(),
         );
+        trace!("Publishing frame");
         self.send(Frame {
             command: Command::Send,
             headers: h,
             body: body.into(),
         })
         .await?;
+        trace!("Published frame");
         Ok(())
     }
 
@@ -220,19 +230,16 @@ impl Client {
 
     pub async fn consume_next(&mut self) -> Result<Frame> {
         loop {
-            let msg = self.inner.next().await.transpose()?.ok_or_else(|| {
+            let msg = self.s2c.next().await.ok_or_else(|| {
                 warn!("Connection dropped while awaiting frame");
                 StompError::ProtocolError
             })?;
             match msg {
-                FrameOrKeepAlive::KeepAlive => continue,
-                FrameOrKeepAlive::Frame(
-                    frame @ Frame {
-                        command: Command::Message,
-                        ..
-                    },
-                ) => return Ok(frame),
-                FrameOrKeepAlive::Frame(frame) => {
+                frame @ Frame {
+                    command: Command::Message,
+                    ..
+                } => return Ok(frame),
+                frame => {
                     warn!(
                         "Bad message from server: {:?}: {:?}",
                         frame.command,
@@ -255,17 +262,16 @@ impl Client {
         .await?;
 
         loop {
-            let msg = self.inner.next().await.transpose()?.ok_or_else(|| {
+            let msg = self.s2c.next().await.ok_or_else(|| {
                 warn!("Connection dropped while awaiting frame");
                 StompError::ProtocolError
             })?;
             match msg {
-                FrameOrKeepAlive::KeepAlive => continue,
-                FrameOrKeepAlive::Frame(Frame {
+                Frame {
                     command: Command::Receipt,
                     ..
-                }) => break,
-                FrameOrKeepAlive::Frame(frame) => {
+                } => break,
+                frame => {
                     warn!(
                         "Unexpected message from server: {:?}: {:?}",
                         frame.command,
@@ -279,7 +285,12 @@ impl Client {
     }
 
     async fn send(&mut self, frame: Frame) -> Result<()> {
-        self.inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+        trace!(
+            "Client sending frame: {:?}: {:?}",
+            frame.command,
+            frame.stringify_headers()
+        );
+        self.c2s.send(frame).await?;
         Ok(())
     }
 }

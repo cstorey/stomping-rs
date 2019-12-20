@@ -15,18 +15,28 @@ async fn can_round_trip_text() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    tokio::spawn(async {
+        debug!("Starting connection");
+        let res = conn.await;
+        debug!("Connection terminated: {:?}", res);
+    });
 
     let body = b"42";
     let queue = format!("/queue/can_round_trip_text-{}", Uuid::new_v4());
 
+    info!("Subscribing to queue");
     client
         .subscribe(&queue, "one", AckMode::Auto)
         .await
         .expect("subscribe");
+
+    info!("Publishing to queue");
     client.publish(&queue, body).await.expect("publish");
 
+    info!("Consuming from queue");
     let frame = client.consume_next().await.expect("consume_next");
+    info!("Consumed item");
+
     assert_eq!(&*body, &*frame.body);
     client.disconnect().await.expect("disconnect");
 }
@@ -126,7 +136,7 @@ async fn should_allow_acking_individual_messages() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn = tokio::spawn(conn);
 
     let queue = format!(
         "/queue/client_acks_should_allow_redelivery-{}",
@@ -143,13 +153,24 @@ async fn should_allow_acking_individual_messages() {
 
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"first");
+
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"second");
+    debug!(
+        "Acking second: {:?}",
+        frame
+            .headers
+            .get("ack".as_bytes())
+            .map(|h| String::from_utf8_lossy(h))
+    );
     client.ack(&frame.headers).await.expect("ack");
 
     // Disconnect
     drop(client);
+    // wait for the connection to exit
+    conn.await.expect("join").expect("connection exit");
 
+    debug!("Reconnecting");
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
@@ -160,9 +181,9 @@ async fn should_allow_acking_individual_messages() {
         .await
         .expect("subscribe");
     let frame = client.consume_next().await.expect("consume_next");
-    assert_eq!(frame.body, b"first");
+    assert_eq!(String::from_utf8_lossy(&frame.body), "first");
     let frame = client.consume_next().await.expect("consume_next");
-    assert_eq!(frame.body, b"third");
+    assert_eq!(String::from_utf8_lossy(&frame.body), "third");
     client.disconnect().await.expect("disconnect");
 }
 

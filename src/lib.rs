@@ -110,7 +110,7 @@ impl Client {
             "1.2".as_bytes().to_vec(),
         );
         if let &Some(ref duration) = &keepalive {
-            let millis = duration.as_secs() * 1000 + duration.subsec_nanos() as u64 / 1000_000;
+            let millis = duration.as_millis();
             conn_headers.insert(
                 "heart-beat".as_bytes().to_vec(),
                 format!("{},{}", millis, millis).as_bytes().to_vec(),

@@ -12,7 +12,7 @@ use uuid::Uuid;
 #[tokio::test]
 async fn can_round_trip_text() {
     env_logger::try_init().unwrap_or_default();
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     let body = b"42";
@@ -32,7 +32,7 @@ async fn can_round_trip_text() {
 #[tokio::test]
 async fn can_round_trip_binary_blobs() {
     env_logger::try_init().unwrap_or_default();
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     let body = b"\x00\x01\x02\x03";
@@ -52,7 +52,7 @@ async fn can_round_trip_binary_blobs() {
 #[tokio::test]
 async fn client_acks_should_allow_redelivery() {
     env_logger::try_init().unwrap_or_default();
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     let body = b"42";
@@ -73,7 +73,7 @@ async fn client_acks_should_allow_redelivery() {
     // Disconnect
     drop(client);
 
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     client
@@ -89,7 +89,7 @@ async fn client_acks_should_allow_redelivery() {
 async fn can_encode_headers_correctly() {
     env_logger::try_init().unwrap_or_default();
     debug!("Connecting");
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     let body = b"42";
@@ -113,7 +113,7 @@ async fn can_encode_headers_correctly() {
 #[tokio::test]
 async fn should_allow_acking_individual_messages() {
     env_logger::try_init().unwrap_or_default();
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     let queue = format!(
@@ -138,7 +138,7 @@ async fn should_allow_acking_individual_messages() {
     // Disconnect
     drop(client);
 
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     client
@@ -157,7 +157,7 @@ async fn should_allow_acking_individual_messages() {
 #[tokio::test]
 async fn should_allow_timeout_on_consume() {
     env_logger::try_init().unwrap_or_default();
-    let mut client = Client::connect(("localhost", 61613), Some(("guest", "guest")), None)
+    let mut client = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
     let queue = format!(
@@ -191,7 +191,7 @@ async fn should_allow_timeout_on_consume() {
 #[ignore]
 async fn thing_to_test_timeouts() {
     env_logger::try_init().unwrap_or_default();
-    let mut client = Client::connect(
+    let mut client = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
         Some(Duration::from_millis(500)),

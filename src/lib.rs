@@ -71,6 +71,76 @@ impl AckMode {
 
 pub type Headers = BTreeMap<Vec<u8>, Vec<u8>>;
 
+pub async fn connect<A: ToSocketAddrs>(
+    a: A,
+    credentials: Option<(&str, &str)>,
+    keepalive: Option<Duration>,
+) -> Result<Client> {
+    let conn = TcpStream::connect(a).await?;
+
+    let mut conn = connection::wrap(conn);
+
+    let mut conn_headers = BTreeMap::new();
+    conn_headers.insert(
+        "accept-version".as_bytes().to_vec(),
+        "1.2".as_bytes().to_vec(),
+    );
+    if let &Some(ref duration) = &keepalive {
+        let millis = duration.as_millis();
+        conn_headers.insert(
+            "heart-beat".as_bytes().to_vec(),
+            format!("{},{}", millis, millis).as_bytes().to_vec(),
+        );
+    }
+    if let Some((user, pass)) = credentials {
+        conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
+        conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
+    }
+    trace!("Sending connect frame");
+    conn.send(FrameOrKeepAlive::Frame(Frame {
+        command: Command::Connect,
+        headers: conn_headers,
+        body: vec![],
+    }))
+    .await?;
+
+    trace!("Awaiting connected frame");
+    let frame = conn.next().await.transpose()?.ok_or_else(|| {
+        warn!("Connection closed before first frame received");
+        StompError::ProtocolError
+    })?;
+
+    let frame = match frame {
+        FrameOrKeepAlive::Frame(frame) => frame,
+        FrameOrKeepAlive::KeepAlive => {
+            warn!("Keepalive sent before first frame received");
+            return Err(StompError::ProtocolError);
+        }
+    };
+
+    if frame.command == Command::Error {
+        warn!(
+            "Error response from server: {:?}: {:?}",
+            frame.command, frame.headers
+        );
+        return Err(StompError::StompError(frame).into());
+    } else if frame.command != Command::Connected {
+        warn!(
+            "Bad response from server: {:?}: {:?}",
+            frame.command,
+            frame.stringify_headers(),
+        );
+        return Err(StompError::ProtocolError.into());
+    }
+
+    let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
+    debug!("Proposed keepalives: {:?}/{:?}", sx, sy);
+
+    // TODO: Keepalives and such
+    let client = Client { inner: conn };
+    Ok(client)
+}
+
 fn parse_keepalive(headervalue: Option<&[u8]>) -> Result<(Option<Duration>, Option<Duration>)> {
     if let Some(sxsy) = headervalue {
         let sxsy = std::str::from_utf8(sxsy)?;
@@ -95,76 +165,6 @@ fn some_non_zero(dur: Duration) -> Option<Duration> {
 }
 
 impl Client {
-    pub async fn connect<A: ToSocketAddrs>(
-        a: A,
-        credentials: Option<(&str, &str)>,
-        keepalive: Option<Duration>,
-    ) -> Result<Self> {
-        let conn = TcpStream::connect(a).await?;
-
-        let mut conn = connection::wrap(conn);
-
-        let mut conn_headers = BTreeMap::new();
-        conn_headers.insert(
-            "accept-version".as_bytes().to_vec(),
-            "1.2".as_bytes().to_vec(),
-        );
-        if let &Some(ref duration) = &keepalive {
-            let millis = duration.as_millis();
-            conn_headers.insert(
-                "heart-beat".as_bytes().to_vec(),
-                format!("{},{}", millis, millis).as_bytes().to_vec(),
-            );
-        }
-        if let Some((user, pass)) = credentials {
-            conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
-            conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
-        }
-        trace!("Sending connect frame");
-        conn.send(FrameOrKeepAlive::Frame(Frame {
-            command: Command::Connect,
-            headers: conn_headers,
-            body: vec![],
-        }))
-        .await?;
-
-        trace!("Awaiting connected frame");
-        let frame = conn.next().await.transpose()?.ok_or_else(|| {
-            warn!("Connection closed before first frame received");
-            StompError::ProtocolError
-        })?;
-
-        let frame = match frame {
-            FrameOrKeepAlive::Frame(frame) => frame,
-            FrameOrKeepAlive::KeepAlive => {
-                warn!("Keepalive sent before first frame received");
-                return Err(StompError::ProtocolError);
-            }
-        };
-
-        if frame.command == Command::Error {
-            warn!(
-                "Error response from server: {:?}: {:?}",
-                frame.command, frame.headers
-            );
-            return Err(StompError::StompError(frame).into());
-        } else if frame.command != Command::Connected {
-            warn!(
-                "Bad response from server: {:?}: {:?}",
-                frame.command,
-                frame.stringify_headers(),
-            );
-            return Err(StompError::ProtocolError.into());
-        }
-
-        let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
-        debug!("Proposed keepalives: {:?}/{:?}", sx, sy);
-
-        // TODO: Keepalives and such
-        let client = Client { inner: conn };
-        Ok(client)
-    }
-
     pub async fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
         let mut h = BTreeMap::new();
         h.insert(

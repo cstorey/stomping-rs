@@ -52,7 +52,7 @@ async fn main() {
     tokio::spawn(conn);
 
     client
-        .subscribe(url.path(), "0", AckMode::Auto)
+        .subscribe(url.path(), "0", AckMode::ClientIndividual)
         .await
         .expect("subscribe");
 
@@ -69,7 +69,8 @@ async fn main() {
             );
         }
         println!();
-        println!("{:?}", String::from_utf8_lossy(&frame.body));
+        println!("{:?}", std::str::from_utf8(&frame.body));
         println!();
+        client.ack(&frame.headers).await.expect("ack");
     }
 }

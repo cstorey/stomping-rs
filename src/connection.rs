@@ -134,11 +134,5 @@ impl Future for Connection {
         }
 
         return Poll::Pending;
-        /*
-        trace!("Poll client to server");
-        let res = self.c2s.as_mut().poll(cx);
-        trace!("Connection poll done: {:?}", res);
-        res
-        */
     }
 }

@@ -8,7 +8,7 @@ use std::{
 use bytes::BytesMut;
 use futures::channel::mpsc::{Receiver, Sender};
 use futures::{
-    future::{BoxFuture, FutureExt},
+    future::{BoxFuture, FutureExt, TryFutureExt},
     sink::{Sink, SinkExt},
     stream::{Stream, StreamExt},
 };
@@ -56,11 +56,11 @@ impl Connection {
         c2s_rx: Receiver<Frame>,
         s2c_tx: Sender<Frame>,
         c2s_ka: Option<Duration>,
-        _s2c_ka: Option<Duration>,
+        s2c_ka: Option<Duration>,
     ) -> Self {
         let (a, b) = inner.split();
         let c2s = Self::run_c2s(a, c2s_rx, c2s_ka).boxed();
-        let s2c = Self::run_s2c(b, s2c_tx).boxed();
+        let s2c = Self::run_s2c(b, s2c_tx, s2c_ka).boxed();
         debug!("Built connection process");
         Connection { s2c, c2s }
     }
@@ -70,11 +70,9 @@ impl Connection {
         mut c2s_rx: Receiver<Frame>,
         keepalive: Option<Duration>,
     ) -> Result<()> {
-        // The spec states that the largest interval between heartbeats
-        // should be `keepalive`. So we use the timeout mechanism here to ensure that happens.
         trace!(
             "Awaiting client messages; keepalive interval: {:?} s",
-            keepalive.map(|ka| ka.as_secs_f64())
+            keepalive.map(|ka| ka.as_secs_f64()),
         );
         loop {
             let it = if let Some(keepalive) = keepalive {
@@ -82,6 +80,7 @@ impl Connection {
             } else {
                 Ok(c2s_rx.next().await)
             };
+
             match it {
                 Ok(Some(frame)) => {
                     trace!(
@@ -104,14 +103,31 @@ impl Connection {
     async fn run_s2c(
         mut inner: impl Stream<Item = Result<FrameOrKeepAlive>> + Unpin,
         mut s2c_tx: Sender<Frame>,
+        keepalive: Option<Duration>,
     ) -> Result<()> {
-        trace!("Awaiting server messages");
-        while let Some(item) = inner.next().await.transpose()? {
-            match item {
-                FrameOrKeepAlive::KeepAlive => {
-                    debug!("A keepalive???");
+        let ka_factor = 2;
+
+        trace!(
+            "Awaiting server messages; keepalive interval: {:?} s (factor: {})",
+            keepalive.map(|ka| ka.as_secs_f64()),
+            ka_factor,
+        );
+        loop {
+            let it = if let Some(keepalive) = keepalive {
+                timeout(keepalive * ka_factor, inner.next())
+                    .map_err(|_| StompError::PeerFailed)
+                    .await?
+                    .transpose()?
+            } else {
+                inner.next().await.transpose()?
+            };
+
+            match it {
+                Some(FrameOrKeepAlive::KeepAlive) => {
+                    debug!("Received keepalive.");
                 }
-                FrameOrKeepAlive::Frame(frame) => {
+
+                Some(FrameOrKeepAlive::Frame(frame)) => {
                     trace!(
                         "Sending to client {:?}/{:?}",
                         frame.command,
@@ -120,9 +136,9 @@ impl Connection {
                     s2c_tx.send(frame).await?;
                     trace!("Send Done");
                 }
+                None => return Ok(()),
             }
         }
-        return Ok(());
     }
 }
 

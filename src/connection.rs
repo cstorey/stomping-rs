@@ -109,28 +109,19 @@ impl Future for Connection {
     type Output = Result<()>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         trace!("Poll client to server");
-        let c2s = self.c2s.as_mut().poll(cx);
-
-        match c2s {
-            Poll::Pending => {
-                trace!("Client to server pending");
-            }
-            Poll::Ready(val) => {
-                info!("Client to server process finished: {:?}", val);
-                return Poll::Ready(val);
-            }
+        if let Poll::Ready(val) = self.c2s.as_mut().poll(cx) {
+            info!("Client to server process finished: {:?}", val);
+            return Poll::Ready(val);
+        } else {
+            trace!("Client to server pending");
         }
 
         trace!("Poll server to client");
-        let s2c = self.s2c.as_mut().poll(cx);
-        match s2c {
-            Poll::Pending => {
-                trace!("Server to client pending");
-            }
-            Poll::Ready(val) => {
-                info!("Server to client process finished: {:?}", val);
-                return Poll::Ready(val);
-            }
+        if let Poll::Ready(val) = self.s2c.as_mut().poll(cx) {
+            info!("Server to client process finished: {:?}", val);
+            return Poll::Ready(val);
+        } else {
+            trace!("Server to client pending");
         }
 
         return Poll::Pending;

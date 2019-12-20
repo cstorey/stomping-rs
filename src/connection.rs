@@ -5,8 +5,12 @@ use std::{
 };
 
 use bytes::BytesMut;
-use futures::channel::mpsc::{Receiver, SendError, Sender};
-use futures::{sink::Sink, stream::Stream};
+use futures::channel::mpsc::{Receiver, Sender};
+use futures::{
+    future::{BoxFuture, FutureExt},
+    sink::{Sink, SinkExt},
+    stream::{Stream, StreamExt},
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
@@ -20,9 +24,8 @@ pub(crate) struct StompCodec;
 
 #[must_use = "The connection future must be polled to make progress"]
 pub struct Connection {
-    inner: Framed<TcpStream, StompCodec>,
-    s2c_tx: Sender<Frame>,
-    c2s_rx: Receiver<Frame>,
+    s2c: BoxFuture<'static, Result<()>>,
+    c2s: BoxFuture<'static, Result<()>>,
 }
 
 pub(crate) fn wrap<T: AsyncRead + AsyncWrite>(inner: T) -> Framed<T, StompCodec> {
@@ -51,81 +54,54 @@ impl Connection {
         c2s_rx: Receiver<Frame>,
         s2c_tx: Sender<Frame>,
     ) -> Self {
+        let (a, b) = inner.split();
+        let c2s = Self::run_c2s(a, c2s_rx).boxed();
+        let s2c = Self::run_s2c(b, s2c_tx).boxed();
         debug!("Built connection process");
-        Connection {
-            inner,
-            s2c_tx,
-            c2s_rx,
-        }
+        Connection { s2c, c2s }
     }
 
-    fn poll_s2c(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        loop {
-            // Can the client receive any new frames?
-            match self.s2c_tx.poll_ready(cx) {
-                // If the client isn't ready for more data, don't try and read anything.
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(Err(e)) => {
-                    trace!("Cient connection dropped; exiting: {:?}", e);
-                    let _: SendError = e;
-                    return Poll::Ready(Ok(()));
-                }
-                Poll::Ready(Ok(())) => match Pin::new(&mut self.inner).poll_next(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(None) => {
-                        info!("Server disconnected; exiting");
-                        return Poll::Ready(Ok(()));
-                    }
-                    Poll::Ready(Some(Err(e))) => {
-                        return Poll::Ready(Err(e.into()));
-                    }
-                    Poll::Ready(Some(Ok(FrameOrKeepAlive::Frame(frame)))) => {
-                        Pin::new(&mut self.s2c_tx).start_send(frame)?;
-                    }
-                    Poll::Ready(Some(Ok(FrameOrKeepAlive::KeepAlive))) => info!("A keepalive?"),
-                },
-            };
-            futures::ready!(Pin::new(&mut self.s2c_tx).poll_flush(cx))?;
+    async fn run_c2s(
+        mut inner: impl Sink<FrameOrKeepAlive, Error = StompError> + Unpin,
+        mut c2s_rx: Receiver<Frame>,
+    ) -> Result<()> {
+        // We can't just use `send_all` here, as we need BiLock to share
+        // the connection between sub-processes.
+        trace!("Awaiting client messages");
+        while let Some(frame) = c2s_rx.next().await {
+            trace!(
+                "Sending to server {:?}/{:?}",
+                frame.command,
+                frame.stringify_headers()
+            );
+            inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+            trace!("Send Done");
         }
+        return Ok(());
     }
 
-    fn poll_c2s(&mut self, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        loop {
-            // Can the client receive any new frames?
-            match Sink::poll_ready(Pin::new(&mut self.inner), cx) {
-                // If the client isn't ready for more data, don't try and read anything.
-                Poll::Pending => {
-                    trace!("c2s: inner pending");
-                    return Poll::Pending;
+    async fn run_s2c(
+        mut inner: impl Stream<Item = Result<FrameOrKeepAlive>> + Unpin,
+        mut s2c_tx: Sender<Frame>,
+    ) -> Result<()> {
+        trace!("Awaiting server messages");
+        while let Some(item) = inner.next().await.transpose()? {
+            match item {
+                FrameOrKeepAlive::KeepAlive => {
+                    debug!("A keepalive???");
                 }
-                Poll::Ready(Err(e)) => {
-                    trace!("c2s: Err: {:?}", e);
-                    return Poll::Ready(Err(e.into()));
+                FrameOrKeepAlive::Frame(frame) => {
+                    trace!(
+                        "Sending to client {:?}/{:?}",
+                        frame.command,
+                        frame.stringify_headers()
+                    );
+                    s2c_tx.send(frame).await?;
+                    trace!("Send Done");
                 }
-                Poll::Ready(Ok(())) => match Pin::new(&mut self.c2s_rx).poll_next(cx) {
-                    Poll::Pending => {
-                        trace!("c2s: client pending");
-                        return Poll::Pending;
-                    }
-                    Poll::Ready(None) => {
-                        info!("Server disconnected; exiting");
-                        return Poll::Ready(Ok(()));
-                    }
-                    Poll::Ready(Some(frame)) => {
-                        trace!(
-                            "c2s: Sending frame: {:?}: {:?}",
-                            frame.command,
-                            frame.stringify_headers()
-                        );
-                        Sink::start_send(
-                            Pin::new(&mut self.inner),
-                            FrameOrKeepAlive::Frame(frame),
-                        )?;
-                    }
-                },
-            };
-            futures::ready!(Pin::new(&mut self.inner).poll_flush(cx))?;
+            }
         }
+        return Ok(());
     }
 }
 
@@ -133,7 +109,9 @@ impl Future for Connection {
     type Output = Result<()>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         trace!("Poll client to server");
-        match self.poll_c2s(cx) {
+        let c2s = self.c2s.as_mut().poll(cx);
+
+        match c2s {
             Poll::Pending => {
                 trace!("Client to server pending");
             }
@@ -144,7 +122,8 @@ impl Future for Connection {
         }
 
         trace!("Poll server to client");
-        match self.poll_s2c(cx) {
+        let s2c = self.s2c.as_mut().poll(cx);
+        match s2c {
             Poll::Pending => {
                 trace!("Server to client pending");
             }
@@ -154,6 +133,12 @@ impl Future for Connection {
             }
         }
 
-        Poll::Pending
+        return Poll::Pending;
+        /*
+        trace!("Poll client to server");
+        let res = self.c2s.as_mut().poll(cx);
+        trace!("Connection poll done: {:?}", res);
+        res
+        */
     }
 }

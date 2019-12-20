@@ -136,7 +136,7 @@ async fn should_allow_acking_individual_messages() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    let conn = tokio::spawn(conn);
+    tokio::spawn(conn);
 
     let queue = format!(
         "/queue/client_acks_should_allow_redelivery-{}",
@@ -153,24 +153,13 @@ async fn should_allow_acking_individual_messages() {
 
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"first");
-
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"second");
-    debug!(
-        "Acking second: {:?}",
-        frame
-            .headers
-            .get("ack".as_bytes())
-            .map(|h| String::from_utf8_lossy(h))
-    );
     client.ack(&frame.headers).await.expect("ack");
 
     // Disconnect
     drop(client);
-    // wait for the connection to exit
-    conn.await.expect("join").expect("connection exit");
 
-    debug!("Reconnecting");
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
@@ -181,9 +170,9 @@ async fn should_allow_acking_individual_messages() {
         .await
         .expect("subscribe");
     let frame = client.consume_next().await.expect("consume_next");
-    assert_eq!(String::from_utf8_lossy(&frame.body), "first");
+    assert_eq!(frame.body, b"first");
     let frame = client.consume_next().await.expect("consume_next");
-    assert_eq!(String::from_utf8_lossy(&frame.body), "third");
+    assert_eq!(frame.body, b"third");
     client.disconnect().await.expect("disconnect");
 }
 
@@ -247,4 +236,52 @@ async fn thing_to_test_timeouts() {
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"first");
     client.disconnect().await.expect("disconnect");
+}
+
+#[tokio::test]
+async fn should_work_channels() {
+    use futures::channel::mpsc;
+    use futures::future::Future;
+    use futures::sink::SinkExt;
+    use futures::stream::StreamExt;
+    use futures::task::{Context, Poll};
+    use pin_project_lite::pin_project;
+    use std::pin::Pin;
+    pin_project! {
+        struct Widget<F>{
+            #[pin] inner: F,
+        }
+    }
+
+    impl<F: Future> Future for Widget<F> {
+        type Output = F::Output;
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let me = self.project();
+            me.inner.poll(cx)
+        }
+    }
+
+    env_logger::try_init().unwrap_or_default();
+
+    let (tx, rx) = mpsc::channel(0);
+
+    async fn receiver(mut rx: mpsc::Receiver<u64>) {
+        while let Some(it) = rx.next().await {
+            println!("Received {}", it);
+        }
+    }
+    async fn sender(mut tx: mpsc::Sender<u64>) {
+        for it in 0u64..10 {
+            tx.send(it).await.expect("send okay");
+            println!("Sent {}", it);
+        }
+    }
+
+    let r = tokio::spawn(Widget {
+        inner: receiver(rx),
+    });
+    let s = tokio::spawn(sender(tx));
+
+    s.await.expect("sender");
+    r.await.expect("receiver");
 }

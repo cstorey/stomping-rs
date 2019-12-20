@@ -138,8 +138,6 @@ pub async fn connect<A: ToSocketAddrs>(
 
     let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
     debug!("Proposed keepalives: {:?}/{:?}", sx, sy);
-    #[cfg(never)]
-    {}
 
     let (c2s_tx, c2s_rx) = channel(1);
     let (s2c_tx, s2c_rx) = channel(1);
@@ -286,7 +284,7 @@ impl Client {
 
     async fn send(&mut self, frame: Frame) -> Result<()> {
         trace!(
-            "Client sending frame: {:?}: {:?}",
+            "Client: send: {:?}: {:?}",
             frame.command,
             frame.stringify_headers()
         );

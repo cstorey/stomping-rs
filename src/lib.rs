@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 
@@ -45,6 +46,12 @@ pub struct Frame {
     pub command: Command,
     pub headers: Headers,
     pub body: Vec<u8>,
+}
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub struct StringyFrame {
+    pub command: Command,
+    pub headers: BTreeMap<(), ()>,
+    pub body: (),
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
@@ -144,7 +151,8 @@ impl Client {
         } else if frame.command != Command::Connected {
             warn!(
                 "Bad response from server: {:?}: {:?}",
-                frame.command, frame.headers
+                frame.command,
+                frame.stringify_headers(),
             );
             return Err(StompError::ProtocolError.into());
         }
@@ -224,7 +232,8 @@ impl Client {
                 FrameOrKeepAlive::Frame(frame) => {
                     warn!(
                         "Bad message from server: {:?}: {:?}",
-                        frame.command, frame.headers
+                        frame.command,
+                        frame.stringify_headers(),
                     );
                     return Err(StompError::ProtocolError.into());
                 }
@@ -256,7 +265,8 @@ impl Client {
                 FrameOrKeepAlive::Frame(frame) => {
                     warn!(
                         "Unexpected message from server: {:?}: {:?}",
-                        frame.command, frame.headers
+                        frame.command,
+                        frame.stringify_headers(),
                     );
                 }
             }
@@ -304,6 +314,15 @@ impl std::str::FromStr for Command {
             "ERROR" => Ok(Command::Error),
             _ => Err(StompError::ProtocolError),
         }
+    }
+}
+
+impl Frame {
+    fn stringify_headers(&self) -> BTreeMap<Cow<'_, str>, Cow<'_, str>> {
+        self.headers
+            .iter()
+            .map(|(k, v)| (String::from_utf8_lossy(k), String::from_utf8_lossy(v)))
+            .collect::<BTreeMap<_, _>>()
     }
 }
 

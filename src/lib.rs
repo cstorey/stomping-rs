@@ -11,6 +11,8 @@ use tokio_util::codec::Framed;
 mod errors;
 use crate::errors::*;
 
+use crate::connection::Connection;
+
 mod connection;
 mod parser;
 mod unparser;
@@ -75,7 +77,7 @@ pub async fn connect<A: ToSocketAddrs>(
     a: A,
     credentials: Option<(&str, &str)>,
     keepalive: Option<Duration>,
-) -> Result<Client> {
+) -> Result<(Connection, Client)> {
     let conn = TcpStream::connect(a).await?;
 
     let mut conn = connection::wrap(conn);
@@ -138,7 +140,8 @@ pub async fn connect<A: ToSocketAddrs>(
 
     // TODO: Keepalives and such
     let client = Client { inner: conn };
-    Ok(client)
+    let mux = Connection {};
+    Ok((mux, client))
 }
 
 fn parse_keepalive(headervalue: Option<&[u8]>) -> Result<(Option<Duration>, Option<Duration>)> {

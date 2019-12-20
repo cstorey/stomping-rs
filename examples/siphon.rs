@@ -47,7 +47,9 @@ async fn main() {
         url.host_str().unwrap_or("localhost"),
         url.port().unwrap_or(61613),
     );
-    let mut client = connect(hostport, creds, heartbeat).await.expect("connect");
+    let (mut mux, mut client) = connect(hostport, creds, heartbeat).await.expect("connect");
+
+    tokio::spawn(mux);
 
     client
         .subscribe(url.path(), "0", AckMode::Auto)

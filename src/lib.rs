@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate log;
 use std::borrow::Cow;
+use std::cmp;
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 
@@ -137,7 +138,13 @@ pub async fn connect<A: ToSocketAddrs>(
     }
 
     let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
-    debug!("Proposed keepalives: {:?}/{:?}", sx, sy);
+
+    debug!(
+        "heart-beat: cx, cy:{:?}; server-transmit:{:?}; server-receive:{:?}",
+        keepalive, sx, sy,
+    );
+    let c2s_ka = cmp::max(keepalive, sy);
+    let s2c_ka = cmp::max(keepalive, sx);
 
     let (c2s_tx, c2s_rx) = channel(1);
     let (s2c_tx, s2c_rx) = channel(1);
@@ -146,7 +153,7 @@ pub async fn connect<A: ToSocketAddrs>(
         c2s: c2s_tx,
         s2c: s2c_rx,
     };
-    let mux = Connection::new(conn, c2s_rx, s2c_tx);
+    let mux = Connection::new(conn, c2s_rx, s2c_tx, c2s_ka, s2c_ka);
     Ok((mux, client))
 }
 

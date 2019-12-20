@@ -2,6 +2,7 @@ use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use bytes::BytesMut;
@@ -13,6 +14,7 @@ use futures::{
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::errors::*;
@@ -53,9 +55,11 @@ impl Connection {
         inner: Framed<TcpStream, StompCodec>,
         c2s_rx: Receiver<Frame>,
         s2c_tx: Sender<Frame>,
+        c2s_ka: Option<Duration>,
+        _s2c_ka: Option<Duration>,
     ) -> Self {
         let (a, b) = inner.split();
-        let c2s = Self::run_c2s(a, c2s_rx).boxed();
+        let c2s = Self::run_c2s(a, c2s_rx, c2s_ka).boxed();
         let s2c = Self::run_s2c(b, s2c_tx).boxed();
         debug!("Built connection process");
         Connection { s2c, c2s }
@@ -64,20 +68,37 @@ impl Connection {
     async fn run_c2s(
         mut inner: impl Sink<FrameOrKeepAlive, Error = StompError> + Unpin,
         mut c2s_rx: Receiver<Frame>,
+        keepalive: Option<Duration>,
     ) -> Result<()> {
-        // We can't just use `send_all` here, as we need BiLock to share
-        // the connection between sub-processes.
-        trace!("Awaiting client messages");
-        while let Some(frame) = c2s_rx.next().await {
-            trace!(
-                "Sending to server {:?}/{:?}",
-                frame.command,
-                frame.stringify_headers()
-            );
-            inner.send(FrameOrKeepAlive::Frame(frame)).await?;
-            trace!("Send Done");
+        // The spec states that the largest interval between heartbeats
+        // should be `keepalive`. So we use the timeout mechanism here to ensure that happens.
+        trace!(
+            "Awaiting client messages; keepalive interval: {:?} s",
+            keepalive.map(|ka| ka.as_secs_f64())
+        );
+        loop {
+            let it = if let Some(keepalive) = keepalive {
+                timeout(keepalive, c2s_rx.next()).await
+            } else {
+                Ok(c2s_rx.next().await)
+            };
+            match it {
+                Ok(Some(frame)) => {
+                    trace!(
+                        "Sending to server {:?}/{:?}",
+                        frame.command,
+                        frame.stringify_headers()
+                    );
+                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+                    trace!("Send Done");
+                }
+                Ok(None) => return Ok(()),
+                Err(e) => {
+                    trace!("Timeout elapsed, sending keepalive: {:?}", e);
+                    inner.send(FrameOrKeepAlive::KeepAlive).await?;
+                }
+            }
         }
-        return Ok(());
     }
 
     async fn run_s2c(

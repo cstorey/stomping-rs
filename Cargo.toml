@@ -23,6 +23,7 @@ uuid = { version = "0.8.0", features = ["v4"] }
 suppositions = "0.1.4"
 tokio = {version="0.2.5", features=["macros", "rt-core", "tcp", "dns"]}
 pin-project-lite = "0.1.1"
+percent-encoding = "2.1.0"
 
 [features]
 # To skip end to end tests on CI

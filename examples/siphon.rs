@@ -6,6 +6,7 @@ extern crate clap;
 use std::time::Duration;
 
 use clap::{App, Arg};
+use percent_encoding::percent_decode_str;
 use tokio;
 use url::Url;
 
@@ -41,13 +42,19 @@ async fn main() {
     };
 
     println!("user: {:?}; pass:{:?}", url.username(), url.password());
-    let creds = url.password().map(|p| (url.username(), p));
 
     let hostport: (&str, u16) = (
         url.host_str().unwrap_or("localhost"),
         url.port().unwrap_or(61613),
     );
-    let (conn, mut client) = connect(hostport, creds, heartbeat).await.expect("connect");
+    let (conn, mut client) = if let Some(pass) = url.password() {
+        let username = percent_decode_str(url.username()).decode_utf8().expect("decode username");
+        let password = percent_decode_str(pass).decode_utf8().expect("decode password");
+
+        connect(hostport, Some((&*username, &*password)), heartbeat).await.expect("connect")
+    } else {
+        connect(hostport, None, heartbeat).await.expect("connect")
+    };
 
     tokio::spawn(conn);
 

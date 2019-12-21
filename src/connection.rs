@@ -149,16 +149,12 @@ impl Future for Connection {
         if let Poll::Ready(val) = self.c2s.as_mut().poll(cx) {
             info!("Client to server process finished: {:?}", val);
             return Poll::Ready(val);
-        } else {
-            trace!("Client to server pending");
         }
 
         trace!("Poll server to client");
         if let Poll::Ready(val) = self.s2c.as_mut().poll(cx) {
             info!("Server to client process finished: {:?}", val);
             return Poll::Ready(val);
-        } else {
-            trace!("Server to client pending");
         }
 
         return Poll::Pending;

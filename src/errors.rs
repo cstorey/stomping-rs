@@ -1,12 +1,14 @@
-use std::collections::BTreeMap;
 use thiserror::Error;
+
+use crate::parser::ParseError;
+use crate::Frame;
 
 pub type Result<T> = std::result::Result<T, StompError>;
 
 #[derive(Debug, Error)]
 pub enum StompError {
-    #[error("stomp error: {}: {:?}: {:?}", _0, _1, _2)]
-    StompError(String, BTreeMap<String, String>, String),
+    #[error("stomp error: {0:?}")]
+    StompError(Frame),
     #[error("Protocol error")]
     ProtocolError,
     #[error("Tried to ack a frame with no `ack` header")]
@@ -19,6 +21,14 @@ pub enum StompError {
     Io(#[from] std::io::Error),
     #[error("parse integer")]
     ParseInt(#[from] std::num::ParseIntError),
+    #[error("parse integer")]
+    ProtocolParse(#[from] ParseError),
+    #[error("Parse utf8")]
+    Utf8(#[from] std::str::Utf8Error),
+    #[error("Client dropped")]
+    ClientDropped,
+    #[error("Connection dropped")]
+    ConnectionDropped(#[from] futures::channel::mpsc::SendError),
 }
 
 #[cfg(never)]

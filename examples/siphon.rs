@@ -6,11 +6,14 @@ extern crate clap;
 use std::time::Duration;
 
 use clap::{App, Arg};
+use percent_encoding::percent_decode_str;
+use tokio;
 use url::Url;
 
 use stomping::*;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let matches = App::new("listener")
         .version("?")
         .author("Ceri Storey")
@@ -39,20 +42,48 @@ fn main() {
     };
 
     println!("user: {:?}; pass:{:?}", url.username(), url.password());
-    let creds = url.password().map(|p| (url.username(), p));
-    let hostport = (
+
+    let hostport: (&str, u16) = (
         url.host_str().unwrap_or("localhost"),
         url.port().unwrap_or(61613),
     );
-    let mut client = Client::connect(hostport, creds, heartbeat).expect("connect");
+    let (conn, mut client) = if let Some(pass) = url.password() {
+        let username = percent_decode_str(url.username())
+            .decode_utf8()
+            .expect("decode username");
+        let password = percent_decode_str(pass)
+            .decode_utf8()
+            .expect("decode password");
+
+        connect(hostport, Some((&*username, &*password)), heartbeat)
+            .await
+            .expect("connect")
+    } else {
+        connect(hostport, None, heartbeat).await.expect("connect")
+    };
+
+    tokio::spawn(conn);
 
     client
-        .subscribe(url.path(), "0", AckMode::Auto)
+        .subscribe(url.path(), "0", AckMode::ClientIndividual)
+        .await
         .expect("subscribe");
 
     loop {
-        let (headers, msg) = client.consume_next().expect("consume_next");
-        println!("{:?}", headers);
-        println!("{:?}", String::from_utf8_lossy(&msg));
+        let frame = client.consume_next().await.expect("consume_next");
+        for (i, (k, v)) in frame.headers.iter().enumerate() {
+            if i != 0 {
+                print!(", ");
+            }
+            print!(
+                "{}={}",
+                String::from_utf8_lossy(k),
+                String::from_utf8_lossy(v)
+            );
+        }
+        println!();
+        println!("{:?}", std::str::from_utf8(&frame.body));
+        println!();
+        client.ack(&frame.headers).await.expect("ack");
     }
 }

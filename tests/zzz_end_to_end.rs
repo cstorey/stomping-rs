@@ -15,7 +15,7 @@ async fn can_round_trip_text() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(async {
+    let conn_task = tokio::spawn(async {
         debug!("Starting connection");
         let res = conn.await;
         debug!("Connection terminated: {:?}", res);
@@ -39,6 +39,8 @@ async fn can_round_trip_text() {
 
     assert_eq!(&*body, &*frame.body);
     client.disconnect().await.expect("disconnect");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }
 
 #[tokio::test]
@@ -47,7 +49,7 @@ async fn can_round_trip_binary_blobs() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     let body = b"\x00\x01\x02\x03";
     let queue = format!("/queue/can_round_trip_binary_blobs-{}", Uuid::new_v4());
@@ -61,6 +63,8 @@ async fn can_round_trip_binary_blobs() {
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, body);
     client.disconnect().await.expect("disconnect");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }
 
 #[tokio::test]
@@ -69,7 +73,7 @@ async fn client_acks_should_allow_redelivery() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     let body = b"42";
     let queue = format!(
@@ -88,11 +92,13 @@ async fn client_acks_should_allow_redelivery() {
 
     // Disconnect
     drop(client);
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     client
         .subscribe(&queue, "one", AckMode::ClientIndividual)
@@ -101,6 +107,8 @@ async fn client_acks_should_allow_redelivery() {
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, body);
     client.disconnect().await.expect("disconnect");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }
 
 #[tokio::test]
@@ -110,7 +118,7 @@ async fn can_encode_headers_correctly() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     let body = b"42";
     let queue = format!("/queue/can_encode_headers_correctly:{}", Uuid::new_v4());
@@ -128,6 +136,8 @@ async fn can_encode_headers_correctly() {
         queue
     );
     client.disconnect().await.expect("disconnect");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }
 
 #[tokio::test]
@@ -136,7 +146,7 @@ async fn should_allow_acking_individual_messages() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     let queue = format!(
         "/queue/client_acks_should_allow_redelivery-{}",
@@ -159,11 +169,13 @@ async fn should_allow_acking_individual_messages() {
 
     // Disconnect
     drop(client);
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     client
         .subscribe(&queue, "one", AckMode::ClientIndividual)
@@ -174,6 +186,8 @@ async fn should_allow_acking_individual_messages() {
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"third");
     client.disconnect().await.expect("disconnect");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }
 
 // This should be replaced with useful use of timeouts.
@@ -184,7 +198,7 @@ async fn should_allow_timeout_on_consume() {
     let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
         .await
         .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     let queue = format!(
         "/queue/client_acks_should_allow_redelivery-{}",
@@ -210,6 +224,8 @@ async fn should_allow_timeout_on_consume() {
     let resp = client.consume_next().await.expect("consume_next");
     let frame = resp.expect("a message");
     assert_eq!(frame.body, b"first");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }
 
 // This test never actually terminates.
@@ -224,7 +240,7 @@ async fn thing_to_test_timeouts() {
     )
     .await
     .expect("connect");
-    tokio::spawn(conn);
+    let conn_task = tokio::spawn(conn);
 
     let queue = format!("/queue/thing_to_test_timeouts-{}", Uuid::new_v4());
 
@@ -236,4 +252,6 @@ async fn thing_to_test_timeouts() {
     let frame = client.consume_next().await.expect("consume_next");
     assert_eq!(frame.body, b"first");
     client.disconnect().await.expect("disconnect");
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
 }

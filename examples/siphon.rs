@@ -48,10 +48,16 @@ async fn main() {
         url.port().unwrap_or(61613),
     );
     let (conn, mut client) = if let Some(pass) = url.password() {
-        let username = percent_decode_str(url.username()).decode_utf8().expect("decode username");
-        let password = percent_decode_str(pass).decode_utf8().expect("decode password");
+        let username = percent_decode_str(url.username())
+            .decode_utf8()
+            .expect("decode username");
+        let password = percent_decode_str(pass)
+            .decode_utf8()
+            .expect("decode password");
 
-        connect(hostport, Some((&*username, &*password)), heartbeat).await.expect("connect")
+        connect(hostport, Some((&*username, &*password)), heartbeat)
+            .await
+            .expect("connect")
     } else {
         connect(hostport, None, heartbeat).await.expect("connect")
     };

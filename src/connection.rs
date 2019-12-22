@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -6,12 +7,17 @@ use std::{
 };
 
 use bytes::BytesMut;
-use futures::channel::mpsc::{Receiver, Sender};
 use futures::{
+    channel::{
+        mpsc::{Receiver, Sender},
+        oneshot,
+    },
     future::{BoxFuture, FutureExt, TryFutureExt},
+    lock::BiLock,
     sink::{Sink, SinkExt},
     stream::{Stream, StreamExt},
 };
+use maplit::btreemap;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -20,7 +26,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use crate::errors::*;
 use crate::parser::parse_frame;
 use crate::unparser::encode_frame;
-use crate::{Frame, FrameOrKeepAlive};
+use crate::{ClientReq, Command, Frame, FrameOrKeepAlive};
 
 pub(crate) struct StompCodec;
 
@@ -28,6 +34,12 @@ pub(crate) struct StompCodec;
 pub struct Connection {
     s2c: BoxFuture<'static, Result<()>>,
     c2s: BoxFuture<'static, Result<()>>,
+}
+
+#[derive(Debug, Default)]
+struct ConnectionState {
+    subscriptions: BTreeMap<Vec<u8>, Sender<Frame>>,
+    receipts: BTreeMap<Vec<u8>, oneshot::Sender<()>>,
 }
 
 pub(crate) fn wrap<T: AsyncRead + AsyncWrite>(inner: T) -> Framed<T, StompCodec> {
@@ -53,21 +65,22 @@ impl Decoder for StompCodec {
 impl Connection {
     pub(crate) fn new(
         inner: Framed<TcpStream, StompCodec>,
-        c2s_rx: Receiver<Frame>,
-        s2c_tx: Sender<Frame>,
+        c2s_rx: Receiver<ClientReq>,
         c2s_ka: Option<Duration>,
         s2c_ka: Option<Duration>,
     ) -> Self {
         let (a, b) = inner.split();
-        let c2s = Self::run_c2s(a, c2s_rx, c2s_ka).boxed();
-        let s2c = Self::run_s2c(b, s2c_tx, s2c_ka).boxed();
+        let (subs_a, subs_b) = BiLock::new(ConnectionState::default());
+        let c2s = Self::run_c2s(a, subs_a, c2s_rx, c2s_ka).boxed();
+        let s2c = Self::run_s2c(b, subs_b, s2c_ka).boxed();
         debug!("Built connection process");
         Connection { s2c, c2s }
     }
 
     async fn run_c2s(
         mut inner: impl Sink<FrameOrKeepAlive, Error = StompError> + Unpin,
-        mut c2s_rx: Receiver<Frame>,
+        subs: BiLock<ConnectionState>,
+        mut c2s_rx: Receiver<ClientReq>,
         keepalive: Option<Duration>,
     ) -> Result<()> {
         trace!(
@@ -82,14 +95,69 @@ impl Connection {
             };
 
             match it {
-                Ok(Some(frame)) => {
+                Ok(Some(ClientReq::Disconnect { done })) => {
+                    let id = "42".as_bytes().to_vec();
+                    let frame = Frame {
+                        command: Command::Disconnect,
+                        headers: btreemap! {
+                            "receipt".as_bytes().to_vec()=> id.clone()
+                        },
+                        body: Vec::new(),
+                    };
                     trace!(
                         "Sending to server {:?}/{:?}",
                         frame.command,
                         frame.stringify_headers()
                     );
+                    {
+                        let mut state = subs.lock().await;
+                        state.receipts.insert(id, done);
+                    };
+
                     inner.send(FrameOrKeepAlive::Frame(frame)).await?;
                     trace!("Send Done");
+                }
+                Ok(Some(ClientReq::Subscribe {
+                    destination,
+                    id,
+                    ack_mode,
+                    messages,
+                })) => {
+                    let frame = Frame {
+                        command: Command::Subscribe,
+                        headers: btreemap! {
+                            "destination".as_bytes().to_vec() => destination.as_bytes().to_vec(),
+                            "id".as_bytes().to_vec() => id.clone(),
+                            "ack".as_bytes().to_vec() => ack_mode.as_str().as_bytes().to_vec(),
+                        },
+                        body: Vec::new(),
+                    };
+                    {
+                        let mut state = subs.lock().await;
+                        state.subscriptions.insert(id, messages);
+                    };
+                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+                }
+                Ok(Some(ClientReq::Publish { destination, body })) => {
+                    let frame = Frame {
+                        command: Command::Send,
+                        headers: btreemap! {
+                            "destination".as_bytes().to_vec() => destination.as_bytes().to_vec(),
+                            "content-length".as_bytes().to_vec() => body.len().to_string().into_bytes(),
+                        },
+                        body: body,
+                    };
+                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+                }
+                Ok(Some(ClientReq::Ack { message_id })) => {
+                    let frame = Frame {
+                        command: Command::Ack,
+                        headers: btreemap! {
+                            "id".as_bytes().to_vec() => message_id,
+                        },
+                        body: Vec::new(),
+                    };
+                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
                 }
                 Ok(None) => return Ok(()),
                 Err(e) => {
@@ -102,7 +170,7 @@ impl Connection {
 
     async fn run_s2c(
         mut inner: impl Stream<Item = Result<FrameOrKeepAlive>> + Unpin,
-        mut s2c_tx: Sender<Frame>,
+        subs: BiLock<ConnectionState>,
         keepalive: Option<Duration>,
     ) -> Result<()> {
         let ka_factor = 2;
@@ -128,13 +196,62 @@ impl Connection {
                 }
 
                 Some(FrameOrKeepAlive::Frame(frame)) => {
-                    trace!(
-                        "Sending to client {:?}/{:?}",
-                        frame.command,
-                        frame.stringify_headers()
-                    );
-                    s2c_tx.send(frame).await?;
-                    trace!("Send Done");
+                    match frame.command {
+                        Command::Message => {
+                            let subscription_id = frame
+                                .headers
+                                .get("subscription".as_bytes())
+                                .cloned()
+                                .ok_or_else(|| {
+                                    warn!("MESSAGE frame missing subscription header!");
+                                    StompError::ProtocolError
+                                })?;
+                            trace!(
+                                "Lookup subscription: {:?}",
+                                String::from_utf8_lossy(&subscription_id)
+                            );
+                            let txp = {
+                                let state = subs.lock().await;
+                                state.subscriptions.get(&subscription_id).cloned()
+                            };
+
+                            if let Some(mut tx) = txp {
+                                trace!(
+                                    "Sending to client {:?}/{:?}",
+                                    frame.command,
+                                    frame.stringify_headers()
+                                );
+                                tx.send(frame).await?;
+                                trace!("Send Done");
+                            } else {
+                                warn!(
+                                    "Received message for unknown subscription: {:?}",
+                                    String::from_utf8_lossy(&subscription_id)
+                                );
+                            }
+                        }
+                        Command::Receipt => {
+                            //
+                            let receipt_id = frame
+                                .headers
+                                .get("receipt-id".as_bytes())
+                                .cloned()
+                                .ok_or_else(|| {
+                                    warn!("RECEIPT frame missing receipt header!");
+                                    StompError::ProtocolError
+                                })?;
+                            trace!("Lookup receipt: {:?}", String::from_utf8_lossy(&receipt_id));
+                            let txp = {
+                                let mut state = subs.lock().await;
+                                state.receipts.remove(&receipt_id)
+                            };
+                            if let Some(tx) = txp {
+                                let _ = tx.send(());
+                                trace!("Acked receipt: {:?}", String::from_utf8_lossy(&receipt_id))
+                            }
+                        }
+                        _ => warn!("Unhandled frame type from server: {:?}", frame.command),
+                    }
                 }
                 None => return Ok(()),
             }

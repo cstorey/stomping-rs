@@ -3,10 +3,18 @@ extern crate log;
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::BTreeMap;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
 
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::{sink::SinkExt, stream::StreamExt};
+use futures::channel::{
+    mpsc::{channel, Receiver, Sender},
+    oneshot,
+};
+use futures::{
+    sink::SinkExt,
+    stream::{Stream, StreamExt},
+};
 use tokio::net::{TcpStream, ToSocketAddrs};
 
 mod errors;
@@ -18,11 +26,18 @@ mod connection;
 mod parser;
 mod unparser;
 
+#[derive(Debug)]
 pub struct Client {
-    c2s: Sender<Frame>,
+    c2s: Sender<ClientReq>,
+}
+
+#[derive(Debug)]
+pub struct Subscription {
+    c2s: Sender<ClientReq>,
     s2c: Receiver<Frame>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum AckMode {
     Auto,
     ClientIndividual,
@@ -43,6 +58,26 @@ pub enum Command {
     Message,
     Receipt,
     Error,
+}
+
+#[derive(Debug)]
+enum ClientReq {
+    Disconnect {
+        done: oneshot::Sender<()>,
+    },
+    Subscribe {
+        destination: String,
+        id: Vec<u8>,
+        ack_mode: AckMode,
+        messages: Sender<Frame>,
+    },
+    Publish {
+        destination: String,
+        body: Vec<u8>,
+    },
+    Ack {
+        message_id: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
@@ -147,13 +182,8 @@ pub async fn connect<A: ToSocketAddrs>(
     let s2c_ka = cmp::max(keepalive, sx);
 
     let (c2s_tx, c2s_rx) = channel(1);
-    let (s2c_tx, s2c_rx) = channel(1);
-    // TODO: Keepalives and such
-    let client = Client {
-        c2s: c2s_tx,
-        s2c: s2c_rx,
-    };
-    let mux = Connection::new(conn, c2s_rx, s2c_tx, c2s_ka, s2c_ka);
+    let client = Client { c2s: c2s_tx };
+    let mux = Connection::new(conn, c2s_rx, c2s_ka, s2c_ka);
     Ok((mux, client))
 }
 
@@ -181,121 +211,54 @@ fn some_non_zero(dur: Duration) -> Option<Duration> {
 }
 
 impl Client {
-    pub async fn subscribe(&mut self, destination: &str, id: &str, mode: AckMode) -> Result<()> {
-        let mut h = BTreeMap::new();
-        h.insert(
-            "destination".as_bytes().to_vec(),
-            destination.as_bytes().to_vec(),
-        );
-        h.insert("id".as_bytes().to_vec(), id.as_bytes().to_vec());
-        h.insert("ack".as_bytes().to_vec(), mode.as_str().as_bytes().to_vec());
-        self.send(Frame {
-            command: Command::Subscribe,
-            headers: h,
-            body: Vec::new(),
+    pub async fn subscribe(
+        &mut self,
+        destination: &str,
+        id: &str,
+        mode: AckMode,
+    ) -> Result<Subscription> {
+        let (tx, rx) = channel(0);
+        self.c2s
+            .send(ClientReq::Subscribe {
+                destination: destination.to_string(),
+                id: id.as_bytes().to_vec(),
+                ack_mode: mode,
+                messages: tx,
+            })
+            .await?;
+        Ok(Subscription {
+            s2c: rx,
+            c2s: self.c2s.clone(),
         })
-        .await?;
-        Ok(())
     }
     pub async fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
-        let mut h = BTreeMap::new();
-        h.insert(
-            "destination".as_bytes().to_vec(),
-            destination.as_bytes().to_vec(),
-        );
-        h.insert(
-            "content-length".as_bytes().to_vec(),
-            format!("{}", body.len()).as_bytes().to_vec(),
-        );
-        trace!("Publishing frame");
-        self.send(Frame {
-            command: Command::Send,
-            headers: h,
-            body: body.into(),
-        })
-        .await?;
+        self.c2s
+            .send(ClientReq::Publish {
+                destination: destination.to_string(),
+                body: body.to_vec(),
+            })
+            .await?;
         trace!("Published frame");
         Ok(())
     }
 
-    pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
-        let mut h = BTreeMap::new();
-        let mid = headers
-            .get("ack".as_bytes())
-            .ok_or(StompError::NoAckHeader)?;
-        h.insert("id".as_bytes().to_vec(), mid.clone());
-        self.send(Frame {
-            command: Command::Ack,
-            headers: h,
-            body: Vec::new(),
-        })
-        .await?;
-        Ok(())
-    }
-
-    pub async fn consume_next(&mut self) -> Result<Frame> {
-        loop {
-            let msg = self.s2c.next().await.ok_or_else(|| {
-                warn!("Connection dropped while awaiting frame");
-                StompError::ProtocolError
-            })?;
-            match msg {
-                frame @ Frame {
-                    command: Command::Message,
-                    ..
-                } => return Ok(frame),
-                frame => {
-                    warn!(
-                        "Bad message from server: {:?}: {:?}",
-                        frame.command,
-                        frame.stringify_headers(),
-                    );
-                    return Err(StompError::ProtocolError.into());
-                }
-            }
-        }
-    }
-
     pub async fn disconnect(mut self) -> Result<()> {
-        let mut h = BTreeMap::new();
-        h.insert("receipt".as_bytes().to_vec(), "42".as_bytes().to_vec());
-        self.send(Frame {
-            command: Command::Disconnect,
-            headers: h,
-            body: Vec::new(),
-        })
-        .await?;
+        let (tx, rx) = oneshot::channel();
+        self.c2s.send(ClientReq::Disconnect { done: tx }).await?;
 
-        loop {
-            let msg = self.s2c.next().await.ok_or_else(|| {
-                warn!("Connection dropped while awaiting frame");
-                StompError::ProtocolError
-            })?;
-            match msg {
-                Frame {
-                    command: Command::Receipt,
-                    ..
-                } => break,
-                frame => {
-                    warn!(
-                        "Unexpected message from server: {:?}: {:?}",
-                        frame.command,
-                        frame.stringify_headers(),
-                    );
-                }
-            }
-        }
+        rx.await?;
 
         Ok(())
     }
+}
 
-    async fn send(&mut self, frame: Frame) -> Result<()> {
-        trace!(
-            "Client: send: {:?}: {:?}",
-            frame.command,
-            frame.stringify_headers()
-        );
-        self.c2s.send(frame).await?;
+impl Subscription {
+    pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
+        let message_id = headers
+            .get("ack".as_bytes())
+            .map(|v| v.to_vec())
+            .ok_or(StompError::NoAckHeader)?;
+        self.c2s.send(ClientReq::Ack { message_id }).await?;
         Ok(())
     }
 }
@@ -342,6 +305,13 @@ impl Frame {
             .iter()
             .map(|(k, v)| (String::from_utf8_lossy(k), String::from_utf8_lossy(v)))
             .collect::<BTreeMap<_, _>>()
+    }
+}
+
+impl Stream for Subscription {
+    type Item = Frame;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.s2c).poll_next(cx)
     }
 }
 

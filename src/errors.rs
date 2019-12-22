@@ -29,6 +29,8 @@ pub enum StompError {
     ClientDropped,
     #[error("Connection dropped")]
     ConnectionDropped(#[from] futures::channel::mpsc::SendError),
+    #[error("Connection dropped")]
+    ConnectionDropped2(#[from] futures::channel::oneshot::Canceled),
 }
 
 #[cfg(never)]

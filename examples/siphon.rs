@@ -6,6 +6,7 @@ extern crate clap;
 use std::time::Duration;
 
 use clap::{App, Arg};
+use futures::stream::StreamExt;
 use percent_encoding::percent_decode_str;
 use tokio;
 use url::Url;
@@ -64,13 +65,13 @@ async fn main() {
 
     tokio::spawn(conn);
 
-    client
+    let mut sub = client
         .subscribe(url.path(), "0", AckMode::ClientIndividual)
         .await
         .expect("subscribe");
 
     loop {
-        let frame = client.consume_next().await.expect("consume_next");
+        let frame = sub.next().await.expect("consume_next");
         for (i, (k, v)) in frame.headers.iter().enumerate() {
             if i != 0 {
                 print!(", ");
@@ -84,6 +85,6 @@ async fn main() {
         println!();
         println!("{:?}", std::str::from_utf8(&frame.body));
         println!();
-        client.ack(&frame.headers).await.expect("ack");
+        sub.ack(&frame.headers).await.expect("ack");
     }
 }

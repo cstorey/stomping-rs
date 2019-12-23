@@ -172,7 +172,7 @@ async fn should_allow_acking_individual_messages() {
     assert_eq!(frame.body, b"first");
     let frame = sub.next().await.expect("consume_next");
     assert_eq!(frame.body, b"second");
-    sub.ack(&frame.headers).await.expect("ack");
+    client.ack(&frame.headers).await.expect("ack");
 
     // Disconnect
     drop(client);

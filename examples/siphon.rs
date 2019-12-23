@@ -85,6 +85,6 @@ async fn main() {
         println!();
         println!("{:?}", std::str::from_utf8(&frame.body));
         println!();
-        sub.ack(&frame.headers).await.expect("ack");
+        client.ack(&frame.headers).await.expect("ack");
     }
 }

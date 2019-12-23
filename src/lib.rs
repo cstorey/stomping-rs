@@ -33,7 +33,6 @@ pub struct Client {
 
 #[derive(Debug)]
 pub struct Subscription {
-    c2s: Sender<ClientReq>,
     s2c: Receiver<Frame>,
 }
 
@@ -226,10 +225,7 @@ impl Client {
                 messages: tx,
             })
             .await?;
-        Ok(Subscription {
-            s2c: rx,
-            c2s: self.c2s.clone(),
-        })
+        Ok(Subscription { s2c: rx })
     }
     pub async fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {
         self.c2s
@@ -250,9 +246,7 @@ impl Client {
 
         Ok(())
     }
-}
 
-impl Subscription {
     pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
         let message_id = headers
             .get("ack".as_bytes())

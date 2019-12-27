@@ -11,7 +11,7 @@ use nom::{
 use nom::{error::ErrorKind, Err, IResult};
 use thiserror::Error;
 
-use crate::{Command, Frame, FrameOrKeepAlive, Headers};
+use crate::protocol::{Command, Frame, FrameOrKeepAlive, Headers};
 
 #[derive(Debug, Error)]
 pub struct ParseError {

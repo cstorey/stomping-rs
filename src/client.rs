@@ -15,7 +15,7 @@ use futures::{
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::connection::{self, ClientReq, Connection};
+use crate::connection::{self, ClientReq, Connection, DisconnectReq};
 use crate::errors::*;
 use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive, Headers};
 
@@ -159,8 +159,11 @@ impl Client {
     }
 
     pub async fn disconnect(mut self) -> Result<()> {
-        let (tx, rx) = oneshot::channel();
-        self.c2s.send(ClientReq::Disconnect { done: tx }).await?;
+        let (done, rx) = oneshot::channel();
+        let id = "42".as_bytes().to_vec();
+
+        let req = DisconnectReq { done, id };
+        self.c2s.send(ClientReq::Disconnect(req)).await?;
 
         rx.await?;
 

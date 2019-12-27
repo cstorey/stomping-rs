@@ -32,10 +32,14 @@ use crate::unparser::encode_frame;
 pub(crate) struct StompCodec;
 
 #[derive(Debug)]
+pub(crate) struct DisconnectReq {
+    pub(crate) id: Vec<u8>,
+    pub(crate) done: oneshot::Sender<()>,
+}
+
+#[derive(Debug)]
 pub(crate) enum ClientReq {
-    Disconnect {
-        done: oneshot::Sender<()>,
-    },
+    Disconnect(DisconnectReq),
     Subscribe {
         destination: String,
         id: Vec<u8>,
@@ -116,15 +120,8 @@ impl Connection {
             };
 
             match it {
-                Ok(Some(ClientReq::Disconnect { done })) => {
-                    let id = "42".as_bytes().to_vec();
-                    let frame = Frame {
-                        command: Command::Disconnect,
-                        headers: btreemap! {
-                            "receipt".as_bytes().to_vec()=> id.clone()
-                        },
-                        body: Vec::new(),
-                    };
+                Ok(Some(ClientReq::Disconnect(req))) => {
+                    let frame = req.to_frame();
                     trace!(
                         "Sending to server {:?}/{:?}",
                         frame.command,
@@ -132,7 +129,7 @@ impl Connection {
                     );
                     {
                         let mut state = subs.lock().await;
-                        state.receipts.insert(id, done);
+                        state.receipts.insert(req.id, req.done);
                     };
 
                     inner.send(FrameOrKeepAlive::Frame(frame)).await?;
@@ -296,5 +293,17 @@ impl Future for Connection {
         }
 
         return Poll::Pending;
+    }
+}
+
+impl DisconnectReq {
+    fn to_frame(&self) -> Frame {
+        Frame {
+            command: Command::Disconnect,
+            headers: btreemap! {
+                "receipt".as_bytes().to_vec()=> self.id.clone()
+            },
+            body: Vec::new(),
+        }
     }
 }

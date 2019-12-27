@@ -26,7 +26,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::errors::*;
 use crate::parser::parse_frame;
-use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive};
+use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive, Headers};
 use crate::unparser::encode_frame;
 
 pub(crate) struct StompCodec;
@@ -59,6 +59,7 @@ pub(crate) struct AckReq {
 pub(crate) struct ConnectReq {
     credentials: Option<(String, String)>,
     keepalive: Option<Duration>,
+    headers: Headers,
 }
 
 #[derive(Debug)]
@@ -271,10 +272,12 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     keepalive: Option<Duration>,
 ) -> Result<(Connection, Sender<ClientReq>)> {
     let mut conn = wrap(conn);
+    let headers = Default::default();
 
     let connect = ConnectReq {
         credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
         keepalive,
+        headers,
     };
 
     let connect_frame = connect.to_frame();

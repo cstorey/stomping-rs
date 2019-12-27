@@ -55,6 +55,11 @@ pub(crate) struct PublishReq {
 pub(crate) struct AckReq {
     pub(crate) message_id: Vec<u8>,
 }
+#[derive(Debug)]
+pub(crate) struct ConnectReq {
+    credentials: Option<(String, String)>,
+    keepalive: Option<Duration>,
+}
 
 #[derive(Debug)]
 pub(crate) enum ClientReq {
@@ -267,29 +272,14 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
 ) -> Result<(Connection, Sender<ClientReq>)> {
     let mut conn = wrap(conn);
 
-    let mut conn_headers = BTreeMap::new();
-    conn_headers.insert(
-        "accept-version".as_bytes().to_vec(),
-        "1.2".as_bytes().to_vec(),
-    );
-    if let &Some(ref duration) = &keepalive {
-        let millis = duration.as_millis();
-        conn_headers.insert(
-            "heart-beat".as_bytes().to_vec(),
-            format!("{},{}", millis, millis).as_bytes().to_vec(),
-        );
-    }
-    if let Some((user, pass)) = credentials {
-        conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
-        conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
-    }
+    let connect = ConnectReq {
+        credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
+        keepalive,
+    };
+
+    let connect_frame = connect.to_frame();
     trace!("Sending connect frame");
-    conn.send(FrameOrKeepAlive::Frame(Frame {
-        command: Command::Connect,
-        headers: conn_headers,
-        body: vec![],
-    }))
-    .await?;
+    conn.send(FrameOrKeepAlive::Frame(connect_frame)).await?;
 
     trace!("Awaiting connected frame");
     let frame = conn.next().await.transpose()?.ok_or_else(|| {
@@ -423,6 +413,32 @@ impl AckReq {
                 "id".as_bytes().to_vec() => self.message_id.clone(),
             },
             body: Vec::new(),
+        }
+    }
+}
+
+impl ConnectReq {
+    fn to_frame(&self) -> Frame {
+        let mut conn_headers = BTreeMap::new();
+        conn_headers.insert(
+            "accept-version".as_bytes().to_vec(),
+            "1.2".as_bytes().to_vec(),
+        );
+        if let Some(ref duration) = self.keepalive.as_ref() {
+            let millis = duration.as_millis();
+            conn_headers.insert(
+                "heart-beat".as_bytes().to_vec(),
+                format!("{},{}", millis, millis).as_bytes().to_vec(),
+            );
+        }
+        if let Some((user, pass)) = self.credentials.as_ref() {
+            conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
+            conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
+        }
+        Frame {
+            command: Command::Connect,
+            headers: conn_headers,
+            body: vec![],
         }
     }
 }

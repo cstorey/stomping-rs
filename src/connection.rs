@@ -1,4 +1,5 @@
 use std::{
+    cmp,
     collections::BTreeMap,
     future::Future,
     pin::Pin,
@@ -9,7 +10,7 @@ use std::{
 use bytes::BytesMut;
 use futures::{
     channel::{
-        mpsc::{Receiver, Sender},
+        mpsc::{channel, Receiver, Sender},
         oneshot,
     },
     future::{BoxFuture, FutureExt, TryFutureExt},
@@ -259,6 +260,103 @@ impl Connection {
     }
 }
 
+pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    conn: T,
+    credentials: Option<(&str, &str)>,
+    keepalive: Option<Duration>,
+) -> Result<(Connection, Sender<ClientReq>)> {
+    let mut conn = wrap(conn);
+
+    let mut conn_headers = BTreeMap::new();
+    conn_headers.insert(
+        "accept-version".as_bytes().to_vec(),
+        "1.2".as_bytes().to_vec(),
+    );
+    if let &Some(ref duration) = &keepalive {
+        let millis = duration.as_millis();
+        conn_headers.insert(
+            "heart-beat".as_bytes().to_vec(),
+            format!("{},{}", millis, millis).as_bytes().to_vec(),
+        );
+    }
+    if let Some((user, pass)) = credentials {
+        conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
+        conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
+    }
+    trace!("Sending connect frame");
+    conn.send(FrameOrKeepAlive::Frame(Frame {
+        command: Command::Connect,
+        headers: conn_headers,
+        body: vec![],
+    }))
+    .await?;
+
+    trace!("Awaiting connected frame");
+    let frame = conn.next().await.transpose()?.ok_or_else(|| {
+        warn!("Connection closed before first frame received");
+        StompError::ProtocolError
+    })?;
+
+    let frame = match frame {
+        FrameOrKeepAlive::Frame(frame) => frame,
+        FrameOrKeepAlive::KeepAlive => {
+            warn!("Keepalive sent before first frame received");
+            return Err(StompError::ProtocolError);
+        }
+    };
+
+    if frame.command == Command::Error {
+        warn!(
+            "Error response from server: {:?}: {:?}",
+            frame.command, frame.headers
+        );
+        return Err(StompError::StompError(frame).into());
+    } else if frame.command != Command::Connected {
+        warn!(
+            "Bad response from server: {:?}: {:?}",
+            frame.command,
+            frame.stringify_headers(),
+        );
+        return Err(StompError::ProtocolError.into());
+    }
+
+    let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
+
+    debug!(
+        "heart-beat: cx, cy:{:?}; server-transmit:{:?}; server-receive:{:?}",
+        keepalive, sx, sy,
+    );
+    let c2s_ka = cmp::max(keepalive, sy);
+    let s2c_ka = cmp::max(keepalive, sx);
+
+    let (c2s_tx, c2s_rx) = channel(1);
+    let mux = Connection::new(conn, c2s_rx, c2s_ka, s2c_ka);
+    Ok((mux, c2s_tx))
+}
+
+fn parse_keepalive(headervalue: Option<&[u8]>) -> Result<(Option<Duration>, Option<Duration>)> {
+    if let Some(sxsy) = headervalue {
+        let sxsy = std::str::from_utf8(sxsy)?;
+        info!("heartbeat: theirs:{:?}", sxsy);
+        let mut it = sxsy.trim().splitn(2, ',');
+        let sx = Duration::from_millis(it.next().ok_or(StompError::ProtocolError)?.parse()?);
+        let sy = Duration::from_millis(it.next().ok_or(StompError::ProtocolError)?.parse()?);
+        info!("heartbeat: theirs:{:?}", (&sx, &sy));
+
+        Ok((some_non_zero(sx), some_non_zero(sy)))
+    } else {
+        Ok((None, None))
+    }
+}
+
+fn some_non_zero(dur: Duration) -> Option<Duration> {
+    if dur == Duration::from_millis(0) {
+        None
+    } else {
+        Some(dur)
+    }
+}
+
 impl Future for Connection {
     type Output = Result<()>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
@@ -325,6 +423,49 @@ impl AckReq {
                 "id".as_bytes().to_vec() => self.message_id.clone(),
             },
             body: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use env_logger;
+    use std::time::Duration;
+
+    #[test]
+    fn keepalives_parse_zero_as_none_0() {
+        env_logger::try_init().unwrap_or_default();
+        assert_eq!(
+            parse_keepalive(Some(b"0,0")).expect("parse_keepalive"),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn keepalives_parse_zero_as_none_1() {
+        env_logger::try_init().unwrap_or_default();
+        assert_eq!(
+            parse_keepalive(Some(b"0,42")).expect("parse_keepalive"),
+            (None, Some(Duration::from_millis(42)))
+        );
+    }
+
+    #[test]
+    fn keepalives_parse_zero_as_none_2() {
+        env_logger::try_init().unwrap_or_default();
+        assert_eq!(
+            parse_keepalive(Some(b"42,0")).expect("parse_keepalive"),
+            (Some(Duration::from_millis(42)), None)
+        );
+    }
+
+    impl FrameOrKeepAlive {
+        pub(crate) fn unwrap_frame(self) -> Frame {
+            match self {
+                FrameOrKeepAlive::Frame(f) => f,
+                FrameOrKeepAlive::KeepAlive => panic!("Expcted a frame, got keepalive"),
+            }
         }
     }
 }

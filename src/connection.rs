@@ -52,11 +52,16 @@ pub(crate) struct PublishReq {
 }
 
 #[derive(Debug)]
+pub(crate) struct AckReq {
+    pub(crate) message_id: Vec<u8>,
+}
+
+#[derive(Debug)]
 pub(crate) enum ClientReq {
     Disconnect(DisconnectReq),
     Subscribe(SubscribeReq),
     Publish(PublishReq),
-    Ack { message_id: Vec<u8> },
+    Ack(AckReq),
 }
 
 #[must_use = "The connection future must be polled to make progress"]
@@ -151,14 +156,8 @@ impl Connection {
                     let frame = req.to_frame();
                     inner.send(FrameOrKeepAlive::Frame(frame)).await?;
                 }
-                Ok(Some(ClientReq::Ack { message_id })) => {
-                    let frame = Frame {
-                        command: Command::Ack,
-                        headers: btreemap! {
-                            "id".as_bytes().to_vec() => message_id,
-                        },
-                        body: Vec::new(),
-                    };
+                Ok(Some(ClientReq::Ack(req))) => {
+                    let frame = req.to_frame();
                     inner.send(FrameOrKeepAlive::Frame(frame)).await?;
                 }
                 Ok(None) => return Ok(()),
@@ -315,6 +314,18 @@ impl PublishReq {
                 "content-length".as_bytes().to_vec() => self.body.len().to_string().into_bytes(),
             },
             body: self.body.clone(),
+        }
+    }
+}
+
+impl AckReq {
+    fn to_frame(&self) -> Frame {
+        Frame {
+            command: Command::Ack,
+            headers: btreemap! {
+                "id".as_bytes().to_vec() => self.message_id.clone(),
+            },
+            body: Vec::new(),
         }
     }
 }

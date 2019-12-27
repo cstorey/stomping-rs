@@ -15,7 +15,9 @@ use futures::{
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::connection::{self, ClientReq, Connection, DisconnectReq, PublishReq, SubscribeReq};
+use crate::connection::{
+    self, AckReq, ClientReq, Connection, DisconnectReq, PublishReq, SubscribeReq,
+};
 use crate::errors::*;
 use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive, Headers};
 
@@ -173,7 +175,8 @@ impl Client {
             .get("ack".as_bytes())
             .map(|v| v.to_vec())
             .ok_or(StompError::NoAckHeader)?;
-        self.c2s.send(ClientReq::Ack { message_id }).await?;
+        let req = AckReq { message_id };
+        self.c2s.send(ClientReq::Ack(req)).await?;
         Ok(())
     }
 }

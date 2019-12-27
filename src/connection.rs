@@ -24,13 +24,32 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
-use crate::client::ClientReq;
 use crate::errors::*;
 use crate::parser::parse_frame;
-use crate::protocol::{Command, Frame, FrameOrKeepAlive};
+use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive};
 use crate::unparser::encode_frame;
 
 pub(crate) struct StompCodec;
+
+#[derive(Debug)]
+pub(crate) enum ClientReq {
+    Disconnect {
+        done: oneshot::Sender<()>,
+    },
+    Subscribe {
+        destination: String,
+        id: Vec<u8>,
+        ack_mode: AckMode,
+        messages: Sender<Frame>,
+    },
+    Publish {
+        destination: String,
+        body: Vec<u8>,
+    },
+    Ack {
+        message_id: Vec<u8>,
+    },
+}
 
 #[must_use = "The connection future must be polled to make progress"]
 pub struct Connection {

@@ -15,7 +15,7 @@ use futures::{
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::connection::{self, Connection};
+use crate::connection::{self, ClientReq, Connection};
 use crate::errors::*;
 use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive, Headers};
 
@@ -27,26 +27,6 @@ pub struct Client {
 #[derive(Debug)]
 pub struct Subscription {
     s2c: Receiver<Frame>,
-}
-
-#[derive(Debug)]
-pub(crate) enum ClientReq {
-    Disconnect {
-        done: oneshot::Sender<()>,
-    },
-    Subscribe {
-        destination: String,
-        id: Vec<u8>,
-        ack_mode: AckMode,
-        messages: Sender<Frame>,
-    },
-    Publish {
-        destination: String,
-        body: Vec<u8>,
-    },
-    Ack {
-        message_id: Vec<u8>,
-    },
 }
 
 pub async fn connect<A: ToSocketAddrs>(

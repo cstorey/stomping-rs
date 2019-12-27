@@ -11,7 +11,7 @@ use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
 use crate::connection::{
-    self, AckReq, ClientReq, Connection, DisconnectReq, PublishReq, SubscribeReq,
+    self, AckReq, ClientReq, ConnectReq, Connection, DisconnectReq, PublishReq, SubscribeReq,
 };
 use crate::errors::*;
 use crate::protocol::{AckMode, Frame, Headers};
@@ -33,7 +33,14 @@ pub async fn connect<A: ToSocketAddrs>(
 ) -> Result<(Connection, Client)> {
     let conn = TcpStream::connect(a).await?;
 
-    let (mux, c2s_tx) = connection::connect(conn, credentials, keepalive).await?;
+    let headers = Default::default();
+    let req = ConnectReq {
+        credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
+        keepalive,
+        headers,
+    };
+
+    let (mux, c2s_tx) = connection::connect(conn, req).await?;
 
     let client = Client { c2s: c2s_tx };
     Ok((mux, client))

@@ -57,9 +57,9 @@ pub(crate) struct AckReq {
 }
 #[derive(Debug)]
 pub(crate) struct ConnectReq {
-    credentials: Option<(String, String)>,
-    keepalive: Option<Duration>,
-    headers: Headers,
+    pub(crate) credentials: Option<(String, String)>,
+    pub(crate) keepalive: Option<Duration>,
+    pub(crate) headers: Headers,
 }
 
 #[derive(Debug)]
@@ -268,17 +268,9 @@ impl Connection {
 
 pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     conn: T,
-    credentials: Option<(&str, &str)>,
-    keepalive: Option<Duration>,
+    connect: ConnectReq,
 ) -> Result<(Connection, Sender<ClientReq>)> {
     let mut conn = wrap(conn);
-    let headers = Default::default();
-
-    let connect = ConnectReq {
-        credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
-        keepalive,
-        headers,
-    };
 
     let connect_frame = connect.to_frame();
     trace!("Sending connect frame");
@@ -317,10 +309,10 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
 
     debug!(
         "heart-beat: cx, cy:{:?}; server-transmit:{:?}; server-receive:{:?}",
-        keepalive, sx, sy,
+        connect.keepalive, sx, sy,
     );
-    let c2s_ka = cmp::max(keepalive, sy);
-    let s2c_ka = cmp::max(keepalive, sx);
+    let c2s_ka = cmp::max(connect.keepalive, sy);
+    let s2c_ka = cmp::max(connect.keepalive, sx);
 
     let (c2s_tx, c2s_rx) = channel(1);
     let mux = Connection::new(conn, c2s_rx, c2s_ka, s2c_ka);

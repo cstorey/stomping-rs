@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
 
-use crate::client::{Frame, FrameOrKeepAlive};
 use crate::errors::*;
+use crate::protocol::{Frame, FrameOrKeepAlive};
 
 pub(crate) fn encode_frame(buf: &mut BytesMut, item: &FrameOrKeepAlive) -> Result<()> {
     match item {
@@ -58,7 +58,7 @@ mod tests {
     use suppositions::{generators::Generator, property};
 
     use super::*;
-    use crate::client::{Command, Frame, Headers};
+    use crate::protocol::{Command, Frame, Headers};
 
     #[test]
     fn should_encode_trivial_example() {

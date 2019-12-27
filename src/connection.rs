@@ -24,9 +24,10 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
-use crate::client::{ClientReq, Command, Frame, FrameOrKeepAlive};
+use crate::client::ClientReq;
 use crate::errors::*;
 use crate::parser::parse_frame;
+use crate::protocol::{Command, Frame, FrameOrKeepAlive};
 use crate::unparser::encode_frame;
 
 pub(crate) struct StompCodec;

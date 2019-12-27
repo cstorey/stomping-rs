@@ -73,7 +73,12 @@ async fn main() {
     tokio::spawn(conn);
 
     let mut sub = client
-        .subscribe(url.path(), "0", AckMode::ClientIndividual)
+        .subscribe(
+            url.path(),
+            "0",
+            AckMode::ClientIndividual,
+            Default::default(),
+        )
         .await
         .expect("subscribe");
 

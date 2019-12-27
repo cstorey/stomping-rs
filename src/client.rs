@@ -52,9 +52,9 @@ impl Client {
         destination: &str,
         id: &str,
         mode: AckMode,
+        headers: Headers,
     ) -> Result<Subscription> {
         let (tx, rx) = channel(0);
-        let headers = Default::default();
         let req = SubscribeReq {
             destination: destination.to_string(),
             id: id.as_bytes().to_vec(),

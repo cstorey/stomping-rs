@@ -33,7 +33,7 @@ async fn can_round_trip_text() {
 
     info!("Subscribing to queue");
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::Auto)
+        .subscribe(&queue, "one", AckMode::Auto, Default::default())
         .await
         .expect("subscribe");
 
@@ -67,7 +67,7 @@ async fn can_round_trip_binary_blobs() {
     let queue = format!("/queue/can_round_trip_binary_blobs-{}", Uuid::new_v4());
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::Auto)
+        .subscribe(&queue, "one", AckMode::Auto, Default::default())
         .await
         .expect("subscribe");
     client.publish(&queue, body).await.expect("publish");
@@ -99,7 +99,7 @@ async fn client_acks_should_allow_redelivery() {
     );
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::ClientIndividual)
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
         .await
         .expect("subscribe");
     client.publish(&queue, body).await.expect("publish");
@@ -127,7 +127,7 @@ async fn client_acks_should_allow_redelivery() {
     let conn_task = tokio::spawn(conn);
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::ClientIndividual)
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
         .await
         .expect("subscribe");
     info!("Subscribed on second connection; awaiting next");
@@ -156,7 +156,7 @@ async fn can_encode_headers_correctly() {
     let queue = format!("/queue/can_encode_headers_correctly:{}", Uuid::new_v4());
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::Auto)
+        .subscribe(&queue, "one", AckMode::Auto, Default::default())
         .await
         .expect("subscribe");
     client.publish(&queue, body).await.expect("publish");
@@ -191,7 +191,7 @@ async fn should_allow_acking_individual_messages() {
     );
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::ClientIndividual)
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
         .await
         .expect("subscribe");
     client.publish(&queue, b"first").await.expect("publish");
@@ -221,7 +221,7 @@ async fn should_allow_acking_individual_messages() {
     let conn_task = tokio::spawn(conn);
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::ClientIndividual)
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
         .await
         .expect("subscribe");
     let frame = sub.next().await.expect("consume_next");
@@ -254,7 +254,7 @@ async fn should_allow_timeout_on_consume() {
     );
 
     client
-        .subscribe(&queue, "one", AckMode::ClientIndividual)
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
         .await
         .expect("subscribe");
     let timeout = Duration::from_millis(500);
@@ -294,7 +294,7 @@ async fn thing_to_test_timeouts() {
     let queue = format!("/queue/thing_to_test_timeouts-{}", Uuid::new_v4());
 
     let mut sub = client
-        .subscribe(&queue, "one", AckMode::ClientIndividual)
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
         .await
         .expect("subscribe");
 

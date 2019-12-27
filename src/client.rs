@@ -2,7 +2,7 @@ use std::cmp;
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use futures::channel::{
     mpsc::{channel, Receiver, Sender},
@@ -202,14 +202,6 @@ impl Stream for Subscription {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.s2c).poll_next(cx)
     }
-}
-
-#[derive(Debug, Clone)]
-struct PaceMaker {
-    client_to_server: Option<Duration>,
-    server_to_client: Option<Duration>,
-    last_observed_read: SystemTime,
-    last_observed_write: SystemTime,
 }
 
 #[cfg(test)]

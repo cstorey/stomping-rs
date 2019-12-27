@@ -30,10 +30,10 @@ pub async fn connect<A: ToSocketAddrs>(
     a: A,
     credentials: Option<(&str, &str)>,
     keepalive: Option<Duration>,
+    headers: Headers,
 ) -> Result<(Connection, Client)> {
     let conn = TcpStream::connect(a).await?;
 
-    let headers = Default::default();
     let req = ConnectReq {
         credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
         keepalive,

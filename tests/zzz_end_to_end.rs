@@ -14,9 +14,14 @@ use uuid::Uuid;
 #[tokio::test]
 async fn can_round_trip_text() {
     env_logger::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(async {
         debug!("Starting connection");
         let res = conn.await;
@@ -48,9 +53,14 @@ async fn can_round_trip_text() {
 #[tokio::test]
 async fn can_round_trip_binary_blobs() {
     env_logger::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let body = b"\x00\x01\x02\x03";
@@ -72,9 +82,14 @@ async fn can_round_trip_binary_blobs() {
 #[tokio::test]
 async fn client_acks_should_allow_redelivery() {
     env_logger::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let body = b"42";
@@ -101,9 +116,14 @@ async fn client_acks_should_allow_redelivery() {
     assert!(res.is_ok(), "Conection exited normally");
     debug!("First connection done");
 
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let mut sub = client
@@ -122,9 +142,14 @@ async fn client_acks_should_allow_redelivery() {
 async fn can_encode_headers_correctly() {
     env_logger::try_init().unwrap_or_default();
     debug!("Connecting");
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let body = b"42";
@@ -150,9 +175,14 @@ async fn can_encode_headers_correctly() {
 #[tokio::test]
 async fn should_allow_acking_individual_messages() {
     env_logger::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let queue = format!(
@@ -180,9 +210,14 @@ async fn should_allow_acking_individual_messages() {
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
 
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let mut sub = client
@@ -203,9 +238,14 @@ async fn should_allow_acking_individual_messages() {
 #[tokio::test]
 async fn should_allow_timeout_on_consume() {
     env_logger::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(("localhost", 61613), Some(("guest", "guest")), None)
-        .await
-        .expect("connect");
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
     let conn_task = tokio::spawn(conn);
 
     let queue = format!(
@@ -245,6 +285,7 @@ async fn thing_to_test_timeouts() {
         ("localhost", 61613),
         Some(("guest", "guest")),
         Some(Duration::from_millis(500)),
+        Default::default(),
     )
     .await
     .expect("connect");

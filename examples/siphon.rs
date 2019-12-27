@@ -56,11 +56,18 @@ async fn main() {
             .decode_utf8()
             .expect("decode password");
 
-        connect(hostport, Some((&*username, &*password)), heartbeat)
+        connect(
+            hostport,
+            Some((&*username, &*password)),
+            heartbeat,
+            Default::default(),
+        )
+        .await
+        .expect("connect")
+    } else {
+        connect(hostport, None, heartbeat, Default::default())
             .await
             .expect("connect")
-    } else {
-        connect(hostport, None, heartbeat).await.expect("connect")
     };
 
     tokio::spawn(conn);

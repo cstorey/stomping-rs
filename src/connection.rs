@@ -43,6 +43,7 @@ pub(crate) struct SubscribeReq {
     pub(crate) id: Vec<u8>,
     pub(crate) ack_mode: AckMode,
     pub(crate) messages: Sender<Frame>,
+    pub(crate) headers: Headers,
 }
 
 #[derive(Debug)]
@@ -375,13 +376,21 @@ impl DisconnectReq {
 
 impl SubscribeReq {
     fn to_frame(&self) -> Frame {
+        let mut headers = self.headers.clone();
+
+        headers.insert(
+            "destination".as_bytes().to_vec(),
+            self.destination.as_bytes().to_vec(),
+        );
+        headers.insert("id".as_bytes().to_vec(), self.id.clone());
+        headers.insert(
+            "ack".as_bytes().to_vec(),
+            self.ack_mode.as_str().as_bytes().to_vec(),
+        );
+
         Frame {
             command: Command::Subscribe,
-            headers: btreemap! {
-                "destination".as_bytes().to_vec() => self.destination.as_bytes().to_vec(),
-                "id".as_bytes().to_vec() => self.id.clone(),
-                "ack".as_bytes().to_vec() => self.ack_mode.as_str().as_bytes().to_vec(),
-            },
+            headers: headers,
             body: Vec::new(),
         }
     }
@@ -476,6 +485,27 @@ mod test {
         let req = ConnectReq {
             credentials: None,
             keepalive: None,
+            headers: btreemap! {
+                "x-canary".as_bytes().to_vec() => "Hi!".as_bytes().to_vec(),
+            },
+        };
+        let fr = req.to_frame();
+
+        assert_eq!(
+            fr.headers
+                .get("x-canary".as_bytes())
+                .map(|v| String::from_utf8_lossy(v).into_owned()),
+            Some("Hi!".to_string()),
+        )
+    }
+    #[test]
+    fn subscribe_req_includes_headers() {
+        let (messages, _) = channel(0);
+        let req = SubscribeReq {
+            ack_mode: AckMode::Auto,
+            destination: Default::default(),
+            id: Default::default(),
+            messages: messages,
             headers: btreemap! {
                 "x-canary".as_bytes().to_vec() => "Hi!".as_bytes().to_vec(),
             },

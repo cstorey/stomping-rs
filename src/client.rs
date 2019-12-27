@@ -54,11 +54,13 @@ impl Client {
         mode: AckMode,
     ) -> Result<Subscription> {
         let (tx, rx) = channel(0);
+        let headers = Default::default();
         let req = SubscribeReq {
             destination: destination.to_string(),
             id: id.as_bytes().to_vec(),
             ack_mode: mode,
             messages: tx,
+            headers,
         };
         self.c2s.send(ClientReq::Subscribe(req)).await?;
         Ok(Subscription { s2c: rx })

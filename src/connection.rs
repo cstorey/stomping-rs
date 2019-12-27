@@ -20,7 +20,6 @@ use futures::{
 use log::*;
 use maplit::btreemap;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -97,8 +96,8 @@ impl Decoder for StompCodec {
 }
 
 impl Connection {
-    pub(crate) fn new(
-        inner: Framed<TcpStream, StompCodec>,
+    pub(crate) fn new<T: AsyncRead + AsyncWrite + Send + 'static>(
+        inner: Framed<T, StompCodec>,
         c2s_rx: Receiver<ClientReq>,
         c2s_ka: Option<Duration>,
         s2c_ka: Option<Duration>,

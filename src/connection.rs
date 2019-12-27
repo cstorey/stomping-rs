@@ -422,7 +422,7 @@ impl AckReq {
 
 impl ConnectReq {
     fn to_frame(&self) -> Frame {
-        let mut conn_headers = BTreeMap::new();
+        let mut conn_headers = self.headers.clone();
         conn_headers.insert(
             "accept-version".as_bytes().to_vec(),
             "1.2".as_bytes().to_vec(),
@@ -477,6 +477,25 @@ mod test {
             parse_keepalive(Some(b"42,0")).expect("parse_keepalive"),
             (Some(Duration::from_millis(42)), None)
         );
+    }
+
+    #[test]
+    fn connect_req_includes_headers() {
+        let req = ConnectReq {
+            credentials: None,
+            keepalive: None,
+            headers: btreemap! {
+                "x-canary".as_bytes().to_vec() => "Hi!".as_bytes().to_vec(),
+            },
+        };
+        let fr = req.to_frame();
+
+        assert_eq!(
+            fr.headers
+                .get("x-canary".as_bytes())
+                .map(|v| String::from_utf8_lossy(v).into_owned()),
+            Some("Hi!".to_string()),
+        )
     }
 
     impl FrameOrKeepAlive {

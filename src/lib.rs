@@ -1,5 +1,3 @@
-#[macro_use]
-extern crate log;
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::BTreeMap;
@@ -15,6 +13,7 @@ use futures::{
     sink::SinkExt,
     stream::{Stream, StreamExt},
 };
+use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
 mod errors;

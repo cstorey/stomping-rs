@@ -38,21 +38,19 @@ pub(crate) struct DisconnectReq {
 }
 
 #[derive(Debug)]
+pub(crate) struct SubscribeReq {
+    pub(crate) destination: String,
+    pub(crate) id: Vec<u8>,
+    pub(crate) ack_mode: AckMode,
+    pub(crate) messages: Sender<Frame>,
+}
+
+#[derive(Debug)]
 pub(crate) enum ClientReq {
     Disconnect(DisconnectReq),
-    Subscribe {
-        destination: String,
-        id: Vec<u8>,
-        ack_mode: AckMode,
-        messages: Sender<Frame>,
-    },
-    Publish {
-        destination: String,
-        body: Vec<u8>,
-    },
-    Ack {
-        message_id: Vec<u8>,
-    },
+    Subscribe(SubscribeReq),
+    Publish { destination: String, body: Vec<u8> },
+    Ack { message_id: Vec<u8> },
 }
 
 #[must_use = "The connection future must be polled to make progress"]
@@ -135,24 +133,19 @@ impl Connection {
                     inner.send(FrameOrKeepAlive::Frame(frame)).await?;
                     trace!("Send Done");
                 }
-                Ok(Some(ClientReq::Subscribe {
-                    destination,
-                    id,
-                    ack_mode,
-                    messages,
-                })) => {
+                Ok(Some(ClientReq::Subscribe(req))) => {
                     let frame = Frame {
                         command: Command::Subscribe,
                         headers: btreemap! {
-                            "destination".as_bytes().to_vec() => destination.as_bytes().to_vec(),
-                            "id".as_bytes().to_vec() => id.clone(),
-                            "ack".as_bytes().to_vec() => ack_mode.as_str().as_bytes().to_vec(),
+                            "destination".as_bytes().to_vec() => req.destination.as_bytes().to_vec(),
+                            "id".as_bytes().to_vec() => req.id.clone(),
+                            "ack".as_bytes().to_vec() => req.ack_mode.as_str().as_bytes().to_vec(),
                         },
                         body: Vec::new(),
                     };
                     {
                         let mut state = subs.lock().await;
-                        state.subscriptions.insert(id, messages);
+                        state.subscriptions.insert(req.id, req.messages);
                     };
                     inner.send(FrameOrKeepAlive::Frame(frame)).await?;
                 }

@@ -15,7 +15,7 @@ use futures::{
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
-use crate::connection::{self, ClientReq, Connection, DisconnectReq};
+use crate::connection::{self, ClientReq, Connection, DisconnectReq, SubscribeReq};
 use crate::errors::*;
 use crate::protocol::{AckMode, Command, Frame, FrameOrKeepAlive, Headers};
 
@@ -137,14 +137,13 @@ impl Client {
         mode: AckMode,
     ) -> Result<Subscription> {
         let (tx, rx) = channel(0);
-        self.c2s
-            .send(ClientReq::Subscribe {
-                destination: destination.to_string(),
-                id: id.as_bytes().to_vec(),
-                ack_mode: mode,
-                messages: tx,
-            })
-            .await?;
+        let req = SubscribeReq {
+            destination: destination.to_string(),
+            id: id.as_bytes().to_vec(),
+            ack_mode: mode,
+            messages: tx,
+        };
+        self.c2s.send(ClientReq::Subscribe(req)).await?;
         Ok(Subscription { s2c: rx })
     }
     pub async fn publish(&mut self, destination: &str, body: &[u8]) -> Result<()> {

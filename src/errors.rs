@@ -1,7 +1,7 @@
 use thiserror::Error;
 
+use crate::client::Frame;
 use crate::parser::ParseError;
-use crate::Frame;
 
 pub type Result<T> = std::result::Result<T, StompError>;
 

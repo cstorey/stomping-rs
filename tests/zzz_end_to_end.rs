@@ -32,7 +32,7 @@ async fn can_round_trip_text() {
     let queue = format!("/queue/can_round_trip_text-{}", Uuid::new_v4());
 
     info!("Subscribing to queue");
-    let mut sub = client
+    let mut sub: Subscription = client
         .subscribe(&queue, "one", AckMode::Auto, Default::default())
         .await
         .expect("subscribe");
@@ -41,7 +41,7 @@ async fn can_round_trip_text() {
     client.publish(&queue, body).await.expect("publish");
 
     info!("Consuming from queue");
-    let frame = sub.next().await.expect("consume_next");
+    let frame: Frame = sub.next().await.expect("consume_next");
     info!("Consumed item");
 
     assert_eq!(&*body, &*frame.body);

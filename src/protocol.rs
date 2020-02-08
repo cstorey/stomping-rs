@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap};
+use std::collections::BTreeMap;
 
 use crate::errors::*;
 
@@ -53,7 +53,10 @@ impl AckMode {
     }
 }
 
-pub type Headers = BTreeMap<Vec<u8>, Vec<u8>>;
+// From the spec:
+// The commands and headers are encoded in UTF-8.
+// –https://stomp.github.io/stomp-specification-1.2.html#Value_Encoding
+pub type Headers = BTreeMap<String, String>;
 
 impl Command {
     pub(crate) fn as_str(&self) -> &'static str {
@@ -88,14 +91,5 @@ impl std::str::FromStr for Command {
             "ERROR" => Ok(Command::Error),
             _ => Err(StompError::ProtocolError),
         }
-    }
-}
-
-impl Frame {
-    pub(crate) fn stringify_headers(&self) -> BTreeMap<Cow<'_, str>, Cow<'_, str>> {
-        self.headers
-            .iter()
-            .map(|(k, v)| (String::from_utf8_lossy(k), String::from_utf8_lossy(v)))
-            .collect::<BTreeMap<_, _>>()
     }
 }

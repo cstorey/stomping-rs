@@ -88,11 +88,7 @@ async fn main() {
             if i != 0 {
                 print!(", ");
             }
-            print!(
-                "{}={}",
-                String::from_utf8_lossy(k),
-                String::from_utf8_lossy(v)
-            );
+            print!("{}={}", k, v);
         }
         println!();
         println!("{:?}", std::str::from_utf8(&frame.body));

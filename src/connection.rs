@@ -402,7 +402,7 @@ impl ConnectReq {
         conn_headers.insert("accept-version".into(), "1.2".into());
         if let Some(ref duration) = self.keepalive.as_ref() {
             let millis = duration.as_millis();
-            conn_headers.insert("heart-beat".into(), format!("{},{}", millis, millis).into());
+            conn_headers.insert("heart-beat".into(), format!("{},{}", millis, millis));
         }
         if let Some((user, pass)) = self.credentials.as_ref() {
             conn_headers.insert("login".into(), user.into());

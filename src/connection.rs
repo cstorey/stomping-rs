@@ -33,14 +33,14 @@ pub(crate) struct StompCodec;
 
 #[derive(Debug)]
 pub(crate) struct DisconnectReq {
-    pub(crate) id: Vec<u8>,
+    pub(crate) id: String,
     pub(crate) done: oneshot::Sender<()>,
 }
 
 #[derive(Debug)]
 pub(crate) struct SubscribeReq {
     pub(crate) destination: String,
-    pub(crate) id: Vec<u8>,
+    pub(crate) id: String,
     pub(crate) ack_mode: AckMode,
     pub(crate) messages: Sender<Frame>,
     pub(crate) headers: Headers,
@@ -54,7 +54,7 @@ pub(crate) struct PublishReq {
 
 #[derive(Debug)]
 pub(crate) struct AckReq {
-    pub(crate) message_id: Vec<u8>,
+    pub(crate) message_id: String,
 }
 #[derive(Debug)]
 pub(crate) struct ConnectReq {
@@ -79,8 +79,8 @@ pub struct Connection {
 
 #[derive(Debug, Default)]
 struct ConnectionState {
-    subscriptions: BTreeMap<Vec<u8>, Sender<Frame>>,
-    receipts: BTreeMap<Vec<u8>, oneshot::Sender<()>>,
+    subscriptions: BTreeMap<String, Sender<Frame>>,
+    receipts: BTreeMap<String, oneshot::Sender<()>>,
 }
 
 pub(crate) fn wrap<T: AsyncRead + AsyncWrite>(inner: T) -> Framed<T, StompCodec> {
@@ -138,11 +138,7 @@ impl Connection {
             match it {
                 Ok(Some(ClientReq::Disconnect(req))) => {
                     let frame = req.to_frame();
-                    trace!(
-                        "Sending to server {:?}/{:?}",
-                        frame.command,
-                        frame.stringify_headers()
-                    );
+                    trace!("Sending to server {:?}/{:?}", frame.command, frame.headers);
                     {
                         let mut state = subs.lock().await;
                         state.receipts.insert(req.id, req.done);
@@ -206,56 +202,43 @@ impl Connection {
                 Some(FrameOrKeepAlive::Frame(frame)) => {
                     match frame.command {
                         Command::Message => {
-                            let subscription_id = frame
-                                .headers
-                                .get("subscription".as_bytes())
-                                .cloned()
-                                .ok_or_else(|| {
+                            let subscription_id =
+                                frame.headers.get("subscription").cloned().ok_or_else(|| {
                                     warn!("MESSAGE frame missing subscription header!");
                                     StompError::ProtocolError
                                 })?;
-                            trace!(
-                                "Lookup subscription: {:?}",
-                                String::from_utf8_lossy(&subscription_id)
-                            );
+                            trace!("Lookup subscription: {:?}", subscription_id);
                             let txp = {
                                 let state = subs.lock().await;
                                 state.subscriptions.get(&subscription_id).cloned()
                             };
 
                             if let Some(mut tx) = txp {
-                                trace!(
-                                    "Sending to client {:?}/{:?}",
-                                    frame.command,
-                                    frame.stringify_headers()
-                                );
+                                trace!("Sending to client {:?}/{:?}", frame.command, frame.headers);
                                 tx.send(frame).await?;
                                 trace!("Send Done");
                             } else {
                                 warn!(
                                     "Received message for unknown subscription: {:?}",
-                                    String::from_utf8_lossy(&subscription_id)
+                                    &subscription_id
                                 );
                             }
                         }
                         Command::Receipt => {
                             //
-                            let receipt_id = frame
-                                .headers
-                                .get("receipt-id".as_bytes())
-                                .cloned()
-                                .ok_or_else(|| {
+                            let receipt_id =
+                                frame.headers.get("receipt-id").cloned().ok_or_else(|| {
                                     warn!("RECEIPT frame missing receipt header!");
                                     StompError::ProtocolError
                                 })?;
-                            trace!("Lookup receipt: {:?}", String::from_utf8_lossy(&receipt_id));
+                            trace!("Lookup receipt: {:?}", receipt_id);
                             let txp = {
                                 let mut state = subs.lock().await;
                                 state.receipts.remove(&receipt_id)
                             };
                             if let Some(tx) = txp {
                                 let _ = tx.send(());
-                                trace!("Acked receipt: {:?}", String::from_utf8_lossy(&receipt_id))
+                                trace!("Acked receipt: {:?}", receipt_id)
                             }
                         }
                         _ => warn!("Unhandled frame type from server: {:?}", frame.command),
@@ -300,13 +283,12 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     } else if frame.command != Command::Connected {
         warn!(
             "Bad response from server: {:?}: {:?}",
-            frame.command,
-            frame.stringify_headers(),
+            frame.command, frame.headers,
         );
         return Err(StompError::ProtocolError.into());
     }
 
-    let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat".as_bytes()).map(|s| &**s))?;
+    let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat").map(|s| &**s))?;
 
     debug!(
         "heart-beat: cx, cy:{:?}; server-transmit:{:?}; server-receive:{:?}",
@@ -320,9 +302,8 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     Ok((mux, c2s_tx))
 }
 
-fn parse_keepalive(headervalue: Option<&[u8]>) -> Result<(Option<Duration>, Option<Duration>)> {
+fn parse_keepalive(headervalue: Option<&str>) -> Result<(Option<Duration>, Option<Duration>)> {
     if let Some(sxsy) = headervalue {
-        let sxsy = std::str::from_utf8(sxsy)?;
         info!("heartbeat: theirs:{:?}", sxsy);
         let mut it = sxsy.trim().splitn(2, ',');
         let sx = Duration::from_millis(it.next().ok_or(StompError::ProtocolError)?.parse()?);
@@ -367,7 +348,7 @@ impl DisconnectReq {
         Frame {
             command: Command::Disconnect,
             headers: btreemap! {
-                "receipt".as_bytes().to_vec()=> self.id.clone()
+                "receipt".into() => self.id.clone()
             },
             body: Vec::new(),
         }
@@ -378,15 +359,9 @@ impl SubscribeReq {
     fn to_frame(&self) -> Frame {
         let mut headers = self.headers.clone();
 
-        headers.insert(
-            "destination".as_bytes().to_vec(),
-            self.destination.as_bytes().to_vec(),
-        );
-        headers.insert("id".as_bytes().to_vec(), self.id.clone());
-        headers.insert(
-            "ack".as_bytes().to_vec(),
-            self.ack_mode.as_str().as_bytes().to_vec(),
-        );
+        headers.insert("destination".into(), self.destination.clone());
+        headers.insert("id".into(), self.id.clone());
+        headers.insert("ack".into(), self.ack_mode.as_str().into());
 
         Frame {
             command: Command::Subscribe,
@@ -401,8 +376,8 @@ impl PublishReq {
         Frame {
             command: Command::Send,
             headers: btreemap! {
-                "destination".as_bytes().to_vec() => self.destination.as_bytes().to_vec(),
-                "content-length".as_bytes().to_vec() => self.body.len().to_string().into_bytes(),
+                "destination".into() => self.destination.clone(),
+                "content-length".into() => self.body.len().to_string(),
             },
             body: self.body.clone(),
         }
@@ -414,7 +389,7 @@ impl AckReq {
         Frame {
             command: Command::Ack,
             headers: btreemap! {
-                "id".as_bytes().to_vec() => self.message_id.clone(),
+                "id".into() => self.message_id.clone(),
             },
             body: Vec::new(),
         }
@@ -424,20 +399,14 @@ impl AckReq {
 impl ConnectReq {
     fn to_frame(&self) -> Frame {
         let mut conn_headers = self.headers.clone();
-        conn_headers.insert(
-            "accept-version".as_bytes().to_vec(),
-            "1.2".as_bytes().to_vec(),
-        );
+        conn_headers.insert("accept-version".into(), "1.2".into());
         if let Some(ref duration) = self.keepalive.as_ref() {
             let millis = duration.as_millis();
-            conn_headers.insert(
-                "heart-beat".as_bytes().to_vec(),
-                format!("{},{}", millis, millis).as_bytes().to_vec(),
-            );
+            conn_headers.insert("heart-beat".into(), format!("{},{}", millis, millis));
         }
         if let Some((user, pass)) = self.credentials.as_ref() {
-            conn_headers.insert("login".as_bytes().to_vec(), user.as_bytes().to_vec());
-            conn_headers.insert("passcode".as_bytes().to_vec(), pass.as_bytes().to_vec());
+            conn_headers.insert("login".into(), user.into());
+            conn_headers.insert("passcode".into(), pass.into());
         }
         Frame {
             command: Command::Connect,
@@ -457,7 +426,7 @@ mod test {
     fn keepalives_parse_zero_as_none_0() {
         env_logger::try_init().unwrap_or_default();
         assert_eq!(
-            parse_keepalive(Some(b"0,0")).expect("parse_keepalive"),
+            parse_keepalive(Some("0,0")).expect("parse_keepalive"),
             (None, None)
         );
     }
@@ -466,7 +435,7 @@ mod test {
     fn keepalives_parse_zero_as_none_1() {
         env_logger::try_init().unwrap_or_default();
         assert_eq!(
-            parse_keepalive(Some(b"0,42")).expect("parse_keepalive"),
+            parse_keepalive(Some("0,42")).expect("parse_keepalive"),
             (None, Some(Duration::from_millis(42)))
         );
     }
@@ -475,7 +444,7 @@ mod test {
     fn keepalives_parse_zero_as_none_2() {
         env_logger::try_init().unwrap_or_default();
         assert_eq!(
-            parse_keepalive(Some(b"42,0")).expect("parse_keepalive"),
+            parse_keepalive(Some("42,0")).expect("parse_keepalive"),
             (Some(Duration::from_millis(42)), None)
         );
     }
@@ -486,17 +455,12 @@ mod test {
             credentials: None,
             keepalive: None,
             headers: btreemap! {
-                "x-canary".as_bytes().to_vec() => "Hi!".as_bytes().to_vec(),
+                "x-canary".into() => "Hi!".into(),
             },
         };
         let fr = req.to_frame();
 
-        assert_eq!(
-            fr.headers
-                .get("x-canary".as_bytes())
-                .map(|v| String::from_utf8_lossy(v).into_owned()),
-            Some("Hi!".to_string()),
-        )
+        assert_eq!(fr.headers.get("x-canary").cloned(), Some("Hi!".to_string()),)
     }
     #[test]
     fn subscribe_req_includes_headers() {
@@ -507,17 +471,12 @@ mod test {
             id: Default::default(),
             messages: messages,
             headers: btreemap! {
-                "x-canary".as_bytes().to_vec() => "Hi!".as_bytes().to_vec(),
+                "x-canary".into() => "Hi!".into(),
             },
         };
         let fr = req.to_frame();
 
-        assert_eq!(
-            fr.headers
-                .get("x-canary".as_bytes())
-                .map(|v| String::from_utf8_lossy(v).into_owned()),
-            Some("Hi!".to_string()),
-        )
+        assert_eq!(fr.headers.get("x-canary").cloned(), Some("Hi!".to_string()),)
     }
 
     impl FrameOrKeepAlive {

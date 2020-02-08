@@ -57,7 +57,7 @@ impl Client {
         let (tx, rx) = channel(0);
         let req = SubscribeReq {
             destination: destination.to_string(),
-            id: id.as_bytes().to_vec(),
+            id: id.into(),
             ack_mode: mode,
             messages: tx,
             headers,
@@ -77,7 +77,7 @@ impl Client {
 
     pub async fn disconnect(mut self) -> Result<()> {
         let (done, rx) = oneshot::channel();
-        let id = "42".as_bytes().to_vec();
+        let id = "42".into();
 
         let req = DisconnectReq { done, id };
         self.c2s.send(ClientReq::Disconnect(req)).await?;
@@ -88,10 +88,7 @@ impl Client {
     }
 
     pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
-        let message_id = headers
-            .get("ack".as_bytes())
-            .map(|v| v.to_vec())
-            .ok_or(StompError::NoAckHeader)?;
+        let message_id = headers.get("ack").cloned().ok_or(StompError::NoAckHeader)?;
         let req = AckReq { message_id };
         self.c2s.send(ClientReq::Ack(req)).await?;
         Ok(())

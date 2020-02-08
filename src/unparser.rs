@@ -40,14 +40,14 @@ fn encode_keepalive(buf: &mut BytesMut) -> Result<()> {
     Ok(())
 }
 
-fn encode_header_label(buf: &mut BytesMut, label: &[u8]) {
-    for c in label {
-        match *c {
+fn encode_header_label(buf: &mut BytesMut, label: &str) {
+    for b in label.bytes() {
+        match b {
             b':' => buf.put_slice(b"\\c"),
             b'\r' => buf.put_slice(b"\\r"),
             b'\n' => buf.put_slice(b"\\n"),
             b'\\' => buf.put_slice(b"\\\\"),
-            _ => buf.put_u8(*c),
+            _ => buf.put_u8(b),
         }
     }
 }
@@ -226,7 +226,12 @@ mod tests {
         use crate::parser::parse_frame;
 
         env_logger::try_init().unwrap_or(());
-        property(frames().filter(|frame| !frame.body.contains(&b'\0'))).check(|frame| {
+        let frames = frames().map(|mut frame| {
+            let body = frame.body.drain(..).filter(|b| *b != 0).collect();
+            frame.body = body;
+            frame
+        });
+        property(frames).check(|frame| {
             let mut buf = BytesMut::new();
 
             encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame.clone())).expect("encode frame");
@@ -298,9 +303,14 @@ mod tests {
         )
     }
 
-    fn octet_vecs() -> impl Generator<Item = Vec<u8>> {
-        use suppositions::generators::*;
-        collections(u8s())
+    fn strings() -> impl Generator<Item = String> {
+        use suppositions::{data::DataError, generators::*};
+        let codepoint_lim = std::char::MAX as u32 + 1;
+
+        let chars = u32s().filter_map(move |ch| {
+            std::char::from_u32(ch % codepoint_lim).ok_or(DataError::SkipItem)
+        });
+        collections(chars)
     }
 
     fn frames() -> impl Generator<Item = Frame> {
@@ -316,7 +326,7 @@ mod tests {
             .or(consts(Command::Receipt))
             .or(consts(Command::Error));
 
-        let headers = collections((octet_vecs(), octet_vecs()).filter(|&(ref k, _)| k.len() != 0));
+        let headers = collections((strings(), strings()).filter(|&(ref k, _)| k.len() != 0));
 
         let bodies = vecs(u8s());
         (commands, headers, bodies).map(|(command, headers, body)| Frame {

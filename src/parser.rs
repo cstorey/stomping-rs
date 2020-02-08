@@ -63,10 +63,7 @@ fn parse_inner(input: &[u8]) -> IResult<&[u8], Frame> {
 
     let (input, _) = newline(input)?;
 
-    let content_length = headers
-        .get("content-length".as_bytes())
-        .and_then(|v| std::str::from_utf8(&v).ok())
-        .and_then(|ls| ls.parse().ok());
+    let content_length = headers.get("content-length").and_then(|ls| ls.parse().ok());
 
     let (input, body) = parse_body(content_length, input)?;
     let body = body.to_owned();
@@ -97,14 +94,14 @@ fn parse_command(input: &[u8]) -> IResult<&[u8], Command> {
 
 fn parse_headers(input: &[u8]) -> IResult<&[u8], Headers> {
     let (input, headers) = fold_many0(parse_header, Headers::new(), |mut headers, (k, v)| {
-        headers.insert(k.to_owned(), v.to_owned());
+        headers.insert(k, v);
         headers
     })(input)?;
 
     Ok((input, headers))
 }
 
-fn parse_header(input: &[u8]) -> IResult<&[u8], (Vec<u8>, Vec<u8>)> {
+fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
     let (input, name) = many1(parse_header_char)(input)?;
     let (input, _) = char(':')(input)?;
 
@@ -113,6 +110,9 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (Vec<u8>, Vec<u8>)> {
     let (input, value) = many0(alt((parse_header_char, map(tag(b":"), |_| b':'))))(input)?;
 
     let (input, _) = newline(input)?;
+
+    let name = String::from_utf8(name).map_err(|_| nom::Err::Error((input, ErrorKind::Char)))?;
+    let value = String::from_utf8(value).map_err(|_| nom::Err::Error((input, ErrorKind::Char)))?;
 
     Ok((input, (name, value)))
 }
@@ -209,10 +209,7 @@ mod tests {
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Connect);
-        assert_eq!(
-            frame.headers.get("login".as_bytes()),
-            Some(&"guest".as_bytes().to_vec())
-        );
+        assert_eq!(frame.headers.get("login").cloned(), Some("guest".into()));
     }
 
     #[test]
@@ -225,14 +222,8 @@ mod tests {
         let result = parse_frame(&mut data).expect("parse");
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
-        assert_eq!(
-            frame.headers.get("colon:".as_bytes()),
-            Some(&"cr\r".as_bytes().to_vec())
-        );
-        assert_eq!(
-            frame.headers.get("slash\\".as_bytes()),
-            Some(&"nl\n".as_bytes().to_vec())
-        );
+        assert_eq!(frame.headers.get("colon:").cloned(), Some("cr\r".into()));
+        assert_eq!(frame.headers.get("slash\\").cloned(), Some("nl\n".into()));
     }
 
     #[test]

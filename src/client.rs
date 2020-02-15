@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -11,7 +12,7 @@ use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
 
 use crate::connection::{
-    self, AckReq, ClientReq, ConnectReq, Connection, DisconnectReq, PublishReq, SubscribeReq,
+    self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,
 };
 use crate::errors::*;
 use crate::protocol::{AckMode, Frame, Headers};
@@ -31,7 +32,7 @@ pub async fn connect<A: ToSocketAddrs>(
     credentials: Option<(&str, &str)>,
     keepalive: Option<Duration>,
     headers: Headers,
-) -> Result<(Connection, Client)> {
+) -> Result<(impl Future<Output = Result<()>>, Client)> {
     let conn = TcpStream::connect(a).await?;
 
     let req = ConnectReq {

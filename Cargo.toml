@@ -11,7 +11,7 @@ nom = "5.0.1"
 bytes = "0.5.3"
 maplit = "1.0.2"
 tokio = {version="0.2.11", features=["sync", "stream", "tcp", "time",]}
-futures = {version="0.3.1", features=["bilock","unstable"]}
+futures = { version = "0.3.4", features = ["bilock","unstable"] }
 tokio-util = {version= "0.2.0", features=["codec"]}
 pin-project-lite = "0.1.1"
 

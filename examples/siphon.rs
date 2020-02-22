@@ -44,10 +44,15 @@ async fn main() {
 
     println!("user: {:?}; pass:{:?}", url.username(), url.password());
 
-    let hostport: (&str, u16) = (
+    let hostport: std::net::SocketAddr = tokio::net::lookup_host((
         url.host_str().unwrap_or("localhost"),
         url.port().unwrap_or(61613),
-    );
+    ))
+    .await
+    .expect("name lookup")
+    .next()
+    .expect("some address");
+
     let (conn, mut client) = if let Some(pass) = url.password() {
         let username = percent_decode_str(url.username())
             .decode_utf8()

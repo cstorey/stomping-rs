@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -6,12 +7,14 @@ use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
 };
-use futures::{sink::SinkExt, stream::Stream};
+use futures::{future::FutureExt, sink::SinkExt, stream::Stream};
+
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
+use tokio::time::timeout;
 
 use crate::connection::{
-    self, AckReq, ClientReq, ConnectReq, Connection, DisconnectReq, PublishReq, SubscribeReq,
+    self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,
 };
 use crate::errors::*;
 use crate::protocol::{AckMode, Frame, Headers};
@@ -31,7 +34,7 @@ pub async fn connect<A: ToSocketAddrs>(
     credentials: Option<(&str, &str)>,
     keepalive: Option<Duration>,
     headers: Headers,
-) -> Result<(Connection, Client)> {
+) -> Result<(impl Future<Output = Result<()>>, Client)> {
     let conn = TcpStream::connect(a).await?;
 
     let req = ConnectReq {
@@ -40,7 +43,14 @@ pub async fn connect<A: ToSocketAddrs>(
         headers,
     };
 
-    let (mux, c2s_tx) = connection::connect(conn, req).await?;
+    let connect_f = connection::connect(conn, req);
+    let connect_f = if let Some(ka) = keepalive {
+        timeout(ka, connect_f).left_future()
+    } else {
+        connect_f.map(Ok).right_future()
+    };
+
+    let (mux, c2s_tx) = connect_f.await??;
 
     let client = Client { c2s: c2s_tx };
     Ok((mux, client))

@@ -7,9 +7,11 @@ use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
 };
-use futures::{sink::SinkExt, stream::Stream};
+use futures::{future::FutureExt, sink::SinkExt, stream::Stream};
+
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
+use tokio::time::timeout;
 
 use crate::connection::{
     self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,
@@ -41,7 +43,14 @@ pub async fn connect<A: ToSocketAddrs>(
         headers,
     };
 
-    let (mux, c2s_tx) = connection::connect(conn, req).await?;
+    let connect_f = connection::connect(conn, req);
+    let connect_f = if let Some(ka) = keepalive {
+        timeout(ka, connect_f).left_future()
+    } else {
+        connect_f.map(Ok).right_future()
+    };
+
+    let (mux, c2s_tx) = connect_f.await??;
 
     let client = Client { c2s: c2s_tx };
     Ok((mux, client))

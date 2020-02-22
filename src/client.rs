@@ -35,15 +35,16 @@ pub async fn connect<A: ToSocketAddrs>(
     keepalive: Option<Duration>,
     headers: Headers,
 ) -> Result<(impl Future<Output = Result<()>>, Client)> {
-    let conn = TcpStream::connect(a).await?;
-
     let req = ConnectReq {
         credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
         keepalive,
         headers,
     };
 
-    let connect_f = connection::connect(conn, req);
+    let connect_f = async {
+        let conn = TcpStream::connect(a).await?;
+        connection::connect(conn, req).await
+    };
     let connect_f = if let Some(ka) = keepalive {
         timeout(ka, connect_f).left_future()
     } else {

@@ -318,3 +318,44 @@ async fn thing_to_test_timeouts() {
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
 }
+
+#[tokio::test]
+async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
+    env_logger::try_init().unwrap_or_default();
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
+    let conn_task = tokio::spawn(conn);
+
+    let queue = format!(
+        "/queue/should_allow_disconnect_by_dropping_with_pending_deliveries-{}",
+        Uuid::new_v4()
+    );
+
+    let mut sub = client
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
+        .await
+        .expect("subscribe");
+    client.publish(&queue, b"first").await.expect("publish");
+    client.publish(&queue, b"second").await.expect("publish");
+    client.publish(&queue, b"third").await.expect("publish");
+
+    // A good-enough proxy for checking that we've had some deliveries.
+    let frame = sub.next().await.expect("consume_next");
+    assert_eq!(frame.body, b"first");
+    debug!("Consumed first");
+
+    info!("Disconnecting…");
+    // Disconnect by dropping client
+    drop(client);
+    info!("Disconnected…");
+
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
+    info!("Disconnected first connection; reconnecting");
+}

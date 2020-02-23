@@ -16,7 +16,6 @@ use maplit::btreemap;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     time::timeout,
-    try_join,
 };
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -108,9 +107,12 @@ async fn run_connection<T: AsyncRead + AsyncWrite + Send + 'static>(
         .inspect_ok(|&()| info!("s2c exited ok"))
         .inspect_err(|e| error!("s2c exited with: {:?}", e));
     debug!("Built connection process");
-    let _: ((), ()) = try_join!(c2s, s2c)?;
 
-    Ok(())
+    // Exit, and cancel the other, when _any one_ of these processes exits.
+    tokio::select! {
+        res = c2s => res,
+        res = s2c => res,
+    }
 }
 
 async fn run_c2s(

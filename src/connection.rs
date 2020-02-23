@@ -6,7 +6,7 @@ use futures::{
         mpsc::{channel, Receiver, Sender},
         oneshot,
     },
-    future::{FutureExt, TryFutureExt},
+    future::TryFutureExt,
     lock::BiLock,
     sink::{Sink, SinkExt},
     stream::{Stream, StreamExt},
@@ -103,12 +103,10 @@ async fn run_connection<T: AsyncRead + AsyncWrite + Send + 'static>(
     let (subs_a, subs_b) = BiLock::new(ConnectionState::default());
     let c2s = run_c2s(a, subs_a, c2s_rx, c2s_ka)
         .inspect_ok(|&()| info!("c2s exited ok"))
-        .inspect_err(|e| error!("c2s exited with: {:?}", e))
-        .boxed();
+        .inspect_err(|e| error!("c2s exited with: {:?}", e));
     let s2c = run_s2c(b, subs_b, s2c_ka)
         .inspect_ok(|&()| info!("s2c exited ok"))
-        .inspect_err(|e| error!("s2c exited with: {:?}", e))
-        .boxed();
+        .inspect_err(|e| error!("s2c exited with: {:?}", e));
     debug!("Built connection process");
     let _: ((), ()) = try_join!(c2s, s2c)?;
 

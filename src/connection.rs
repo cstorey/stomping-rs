@@ -1,11 +1,4 @@
-use std::{
-    cmp,
-    collections::BTreeMap,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::{cmp, collections::BTreeMap, future::Future, time::Duration};
 
 use bytes::BytesMut;
 use futures::{
@@ -13,15 +6,17 @@ use futures::{
         mpsc::{channel, Receiver, Sender},
         oneshot,
     },
-    future::{BoxFuture, FutureExt, TryFutureExt},
+    future::TryFutureExt,
     lock::BiLock,
     sink::{Sink, SinkExt},
     stream::{Stream, StreamExt},
 };
 use log::*;
 use maplit::btreemap;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    time::timeout,
+};
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::errors::*;
@@ -71,12 +66,6 @@ pub(crate) enum ClientReq {
     Ack(AckReq),
 }
 
-#[must_use = "The connection future must be polled to make progress"]
-pub struct Connection {
-    s2c: BoxFuture<'static, Result<()>>,
-    c2s: BoxFuture<'static, Result<()>>,
-}
-
 #[derive(Debug, Default)]
 struct ConnectionState {
     subscriptions: BTreeMap<String, Sender<Frame>>,
@@ -103,149 +92,163 @@ impl Decoder for StompCodec {
     }
 }
 
-impl Connection {
-    pub(crate) fn new<T: AsyncRead + AsyncWrite + Send + 'static>(
-        inner: Framed<T, StompCodec>,
-        c2s_rx: Receiver<ClientReq>,
-        c2s_ka: Option<Duration>,
-        s2c_ka: Option<Duration>,
-    ) -> Self {
-        let (a, b) = inner.split();
-        let (subs_a, subs_b) = BiLock::new(ConnectionState::default());
-        let c2s = Self::run_c2s(a, subs_a, c2s_rx, c2s_ka).boxed();
-        let s2c = Self::run_s2c(b, subs_b, s2c_ka).boxed();
-        debug!("Built connection process");
-        Connection { s2c, c2s }
+async fn run_connection<T: AsyncRead + AsyncWrite + Send + 'static>(
+    inner: Framed<T, StompCodec>,
+    c2s_rx: Receiver<ClientReq>,
+    c2s_ka: Option<Duration>,
+    s2c_ka: Option<Duration>,
+) -> Result<()> {
+    let (a, b) = inner.split();
+    let (subs_a, subs_b) = BiLock::new(ConnectionState::default());
+    let c2s = run_c2s(a, subs_a, c2s_rx, c2s_ka)
+        .inspect_ok(|&()| info!("c2s exited ok"))
+        .inspect_err(|e| error!("c2s exited with: {:?}", e));
+    let s2c = run_s2c(b, subs_b, s2c_ka)
+        .inspect_ok(|&()| info!("s2c exited ok"))
+        .inspect_err(|e| error!("s2c exited with: {:?}", e));
+    debug!("Built connection process");
+
+    // Exit, and cancel the other, when _any one_ of these processes exits.
+    tokio::select! {
+        res = c2s => res,
+        res = s2c => res,
     }
+}
 
-    async fn run_c2s(
-        mut inner: impl Sink<FrameOrKeepAlive, Error = StompError> + Unpin,
-        subs: BiLock<ConnectionState>,
-        mut c2s_rx: Receiver<ClientReq>,
-        keepalive: Option<Duration>,
-    ) -> Result<()> {
-        trace!(
-            "Awaiting client messages; keepalive interval: {:?} s",
-            keepalive.map(|ka| ka.as_secs_f64()),
-        );
-        loop {
-            let it = if let Some(keepalive) = keepalive {
-                timeout(keepalive, c2s_rx.next()).await
-            } else {
-                Ok(c2s_rx.next().await)
-            };
+async fn run_c2s(
+    mut inner: impl Sink<FrameOrKeepAlive, Error = StompError> + Unpin,
+    subs: BiLock<ConnectionState>,
+    mut c2s_rx: Receiver<ClientReq>,
+    keepalive: Option<Duration>,
+) -> Result<()> {
+    trace!(
+        "Awaiting client messages; keepalive interval: {:?} s",
+        keepalive.map(|ka| ka.as_secs_f64()),
+    );
+    loop {
+        let it = if let Some(keepalive) = keepalive {
+            timeout(keepalive, c2s_rx.next()).await
+        } else {
+            Ok(c2s_rx.next().await)
+        };
+        trace!("c2s frame: {:?}", it);
 
-            match it {
-                Ok(Some(ClientReq::Disconnect(req))) => {
-                    let frame = req.to_frame();
-                    trace!("Sending to server {:?}/{:?}", frame.command, frame.headers);
-                    {
-                        let mut state = subs.lock().await;
-                        state.receipts.insert(req.id, req.done);
-                    };
+        match it {
+            Ok(Some(ClientReq::Disconnect(req))) => {
+                let frame = req.to_frame();
+                trace!("Sending to server {:?}/{:?}", frame.command, frame.headers);
+                {
+                    let mut state = subs.lock().await;
+                    state.receipts.insert(req.id, req.done);
+                };
 
-                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
-                    trace!("Send Done");
-                }
-                Ok(Some(ClientReq::Subscribe(req))) => {
-                    let frame = req.to_frame();
-                    {
-                        let mut state = subs.lock().await;
-                        state.subscriptions.insert(req.id, req.messages);
-                    };
-                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
-                }
-                Ok(Some(ClientReq::Publish(req))) => {
-                    let frame = req.to_frame();
-                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
-                }
-                Ok(Some(ClientReq::Ack(req))) => {
-                    let frame = req.to_frame();
-                    inner.send(FrameOrKeepAlive::Frame(frame)).await?;
-                }
-                Ok(None) => return Ok(()),
-                Err(e) => {
-                    trace!("Timeout elapsed, sending keepalive: {:?}", e);
-                    inner.send(FrameOrKeepAlive::KeepAlive).await?;
-                }
+                inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+                trace!("Send Done");
+            }
+            Ok(Some(ClientReq::Subscribe(req))) => {
+                let frame = req.to_frame();
+                {
+                    let mut state = subs.lock().await;
+                    state.subscriptions.insert(req.id, req.messages);
+                };
+                inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+            }
+            Ok(Some(ClientReq::Publish(req))) => {
+                let frame = req.to_frame();
+                inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+            }
+            Ok(Some(ClientReq::Ack(req))) => {
+                let frame = req.to_frame();
+                inner.send(FrameOrKeepAlive::Frame(frame)).await?;
+            }
+            Ok(None) => return Ok(()),
+            Err(e) => {
+                trace!("Timeout elapsed, sending keepalive: {:?}", e);
+                inner.send(FrameOrKeepAlive::KeepAlive).await?;
             }
         }
     }
+}
 
-    async fn run_s2c(
-        mut inner: impl Stream<Item = Result<FrameOrKeepAlive>> + Unpin,
-        subs: BiLock<ConnectionState>,
-        keepalive: Option<Duration>,
-    ) -> Result<()> {
-        let ka_factor = 2;
+// This function can potentially cause a deadlock. All subscriptions must
+// be polled up until both of the reader and writer halves have exited.
+// Otherwise, we may end up blocking trying to write to a subscription that
+// will never be read. this means, that a connection may be closed, but never
+// be observed, as we're blocked attempting to send.
+async fn run_s2c(
+    mut inner: impl Stream<Item = Result<FrameOrKeepAlive>> + Unpin,
+    subs: BiLock<ConnectionState>,
+    keepalive: Option<Duration>,
+) -> Result<()> {
+    let ka_factor = 2;
 
-        trace!(
-            "Awaiting server messages; keepalive interval: {:?} s (factor: {})",
-            keepalive.map(|ka| ka.as_secs_f64()),
-            ka_factor,
-        );
-        loop {
-            let it = if let Some(keepalive) = keepalive {
-                timeout(keepalive * ka_factor, inner.next())
-                    .map_err(|_| StompError::PeerFailed)
-                    .await?
-                    .transpose()?
-            } else {
-                inner.next().await.transpose()?
-            };
+    trace!(
+        "Awaiting server messages; keepalive interval: {:?} s (factor: {})",
+        keepalive.map(|ka| ka.as_secs_f64()),
+        ka_factor,
+    );
+    loop {
+        let it = if let Some(keepalive) = keepalive {
+            timeout(keepalive * ka_factor, inner.next())
+                .map_err(|_| StompError::PeerFailed)
+                .await?
+                .transpose()?
+        } else {
+            inner.next().await.transpose()?
+        };
+        trace!("s2c frame: {:?}", it);
 
-            match it {
-                Some(FrameOrKeepAlive::KeepAlive) => {
-                    debug!("Received keepalive.");
-                }
-
-                Some(FrameOrKeepAlive::Frame(frame)) => {
-                    match frame.command {
-                        Command::Message => {
-                            let subscription_id =
-                                frame.headers.get("subscription").cloned().ok_or_else(|| {
-                                    warn!("MESSAGE frame missing subscription header!");
-                                    StompError::ProtocolError
-                                })?;
-                            trace!("Lookup subscription: {:?}", subscription_id);
-                            let txp = {
-                                let state = subs.lock().await;
-                                state.subscriptions.get(&subscription_id).cloned()
-                            };
-
-                            if let Some(mut tx) = txp {
-                                trace!("Sending to client {:?}/{:?}", frame.command, frame.headers);
-                                tx.send(frame).await?;
-                                trace!("Send Done");
-                            } else {
-                                warn!(
-                                    "Received message for unknown subscription: {:?}",
-                                    &subscription_id
-                                );
-                            }
-                        }
-                        Command::Receipt => {
-                            //
-                            let receipt_id =
-                                frame.headers.get("receipt-id").cloned().ok_or_else(|| {
-                                    warn!("RECEIPT frame missing receipt header!");
-                                    StompError::ProtocolError
-                                })?;
-                            trace!("Lookup receipt: {:?}", receipt_id);
-                            let txp = {
-                                let mut state = subs.lock().await;
-                                state.receipts.remove(&receipt_id)
-                            };
-                            if let Some(tx) = txp {
-                                let _ = tx.send(());
-                                trace!("Acked receipt: {:?}", receipt_id)
-                            }
-                        }
-                        _ => warn!("Unhandled frame type from server: {:?}", frame.command),
-                    }
-                }
-                None => return Ok(()),
+        match it {
+            Some(FrameOrKeepAlive::KeepAlive) => {
+                debug!("Received keepalive.");
             }
+
+            Some(FrameOrKeepAlive::Frame(frame)) => {
+                match frame.command {
+                    Command::Message => {
+                        let subscription_id =
+                            frame.headers.get("subscription").cloned().ok_or_else(|| {
+                                warn!("MESSAGE frame missing subscription header!");
+                                StompError::ProtocolError
+                            })?;
+                        trace!("Lookup subscription: {:?}", subscription_id);
+                        let txp = {
+                            let state = subs.lock().await;
+                            state.subscriptions.get(&subscription_id).cloned()
+                        };
+
+                        if let Some(mut tx) = txp {
+                            trace!("Sending to client {:?}/{:?}", frame.command, frame.headers);
+                            tx.send(frame).await?;
+                            trace!("Send Done");
+                        } else {
+                            warn!(
+                                "Received message for unknown subscription: {:?}",
+                                &subscription_id
+                            );
+                        }
+                    }
+                    Command::Receipt => {
+                        //
+                        let receipt_id =
+                            frame.headers.get("receipt-id").cloned().ok_or_else(|| {
+                                warn!("RECEIPT frame missing receipt header!");
+                                StompError::ProtocolError
+                            })?;
+                        trace!("Lookup receipt: {:?}", receipt_id);
+                        let txp = {
+                            let mut state = subs.lock().await;
+                            state.receipts.remove(&receipt_id)
+                        };
+                        if let Some(tx) = txp {
+                            let _ = tx.send(());
+                            trace!("Acked receipt: {:?}", receipt_id)
+                        }
+                    }
+                    _ => warn!("Unhandled frame type from server: {:?}", frame.command),
+                }
+            }
+            None => return Ok(()),
         }
     }
 }
@@ -253,7 +256,7 @@ impl Connection {
 pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     conn: T,
     connect: ConnectReq,
-) -> Result<(Connection, Sender<ClientReq>)> {
+) -> Result<(impl Future<Output = Result<()>>, Sender<ClientReq>)> {
     let mut conn = wrap(conn);
 
     let connect_frame = connect.to_frame();
@@ -298,8 +301,9 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
     let s2c_ka = cmp::max(connect.keepalive, sx);
 
     let (c2s_tx, c2s_rx) = channel(1);
-    let mux = Connection::new(conn, c2s_rx, c2s_ka, s2c_ka);
-    Ok((mux, c2s_tx))
+
+    let mux_fut = run_connection(conn, c2s_rx, c2s_ka, s2c_ka);
+    Ok((mux_fut, c2s_tx))
 }
 
 fn parse_keepalive(headervalue: Option<&str>) -> Result<(Option<Duration>, Option<Duration>)> {
@@ -321,25 +325,6 @@ fn some_non_zero(dur: Duration) -> Option<Duration> {
         None
     } else {
         Some(dur)
-    }
-}
-
-impl Future for Connection {
-    type Output = Result<()>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        trace!("Poll client to server");
-        if let Poll::Ready(val) = self.c2s.as_mut().poll(cx) {
-            info!("Client to server process finished: {:?}", val);
-            return Poll::Ready(val);
-        }
-
-        trace!("Poll server to client");
-        if let Poll::Ready(val) = self.s2c.as_mut().poll(cx) {
-            info!("Server to client process finished: {:?}", val);
-            return Poll::Ready(val);
-        }
-
-        return Poll::Pending;
     }
 }
 

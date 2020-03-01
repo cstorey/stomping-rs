@@ -15,23 +15,23 @@ pub enum StompError {
     NoAckHeader,
     #[error("peer seems to be unresponsive")]
     PeerFailed,
-    #[error("system time")]
+    #[error("system time: {0}")]
     SystemTime(#[from] std::time::SystemTimeError),
-    #[error("I/O")]
+    #[error("I/O: {0}")]
     Io(#[from] std::io::Error),
-    #[error("parse integer")]
+    #[error("parse integer: {0}")]
     ParseInt(#[from] std::num::ParseIntError),
-    #[error("parse integer")]
+    #[error("parse integer: {0}")]
     ProtocolParse(#[from] ParseError),
-    #[error("Parse utf8")]
+    #[error("Parse utf8: {0}")]
     Utf8(#[from] std::str::Utf8Error),
     #[error("Client dropped")]
     ClientDropped,
-    #[error("Connection dropped")]
+    #[error("Connection dropped: {0}")]
     ConnectionDropped(#[from] futures::channel::mpsc::SendError),
-    #[error("Connection dropped")]
+    #[error("Connection dropped: {0}")]
     ConnectionDropped2(#[from] futures::channel::oneshot::Canceled),
-    #[error("Timeout")]
+    #[error("Timeout: {0}")]
     TimedOut(#[from] tokio::time::Elapsed),
 }
 

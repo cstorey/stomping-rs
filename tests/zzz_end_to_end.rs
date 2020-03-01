@@ -109,8 +109,8 @@ async fn client_acks_should_allow_redelivery() {
 
     debug!("Disconnecting without acking");
     // Disconnect
-    drop(client);
     drop(sub);
+    client.disconnect().await.expect("disconnect");
     debug!("Dropped client; awaiting connection");
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
@@ -183,7 +183,7 @@ async fn should_allow_acking_individual_messages() {
     let conn_task = tokio::spawn(conn);
 
     let queue = format!(
-        "/queue/client_acks_should_allow_redelivery-{}",
+        "/queue/should_allow_acking_individual_messages-{}",
         Uuid::new_v4()
     );
 
@@ -197,15 +197,34 @@ async fn should_allow_acking_individual_messages() {
 
     let frame = sub.next().await.expect("consume_next");
     assert_eq!(frame.body, b"first");
+    debug!("Consumed first");
+
     let frame = sub.next().await.expect("consume_next");
     assert_eq!(frame.body, b"second");
-    client.ack(&frame.headers).await.expect("ack");
+    debug!("Consumed second");
 
+    client.ack(&frame.headers).await.expect("ack");
+    debug!("Acked second");
+
+    // If we don't consume all of the items on the channel, we risk a deadlock.
+    // The sender half of the network ends up blocking on trying to deliver the
+    // third message to the client, meaning it's unable to observe the receipt
+    // frame from the disconnect.
+    // We should find
+    let frame = sub.next().await.expect("consume_next");
+    assert_eq!(frame.body, b"third");
+    debug!("Observed third");
+
+    info!("Disconnecting…");
     // Disconnect
-    drop(client);
+    client.disconnect().await.expect("disconnect");
+    debug!("Drop subscription");
     drop(sub);
+    info!("Disconnected…");
+
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
+    info!("Disconnected first connection; reconnecting");
 
     let (conn, mut client) = connect(
         ("localhost", 61613),
@@ -222,9 +241,10 @@ async fn should_allow_acking_individual_messages() {
         .await
         .expect("subscribe");
     let frame = sub.next().await.expect("consume_next");
-    assert_eq!(frame.body, b"first");
+    assert_eq!(std::str::from_utf8(&frame.body).unwrap(), "first");
     let frame = sub.next().await.expect("consume_next");
-    assert_eq!(frame.body, b"third");
+    assert_eq!(std::str::from_utf8(&frame.body).unwrap(), "third");
+
     client.disconnect().await.expect("disconnect");
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
@@ -245,10 +265,7 @@ async fn should_allow_timeout_on_consume() {
     .expect("connect");
     let conn_task = tokio::spawn(conn);
 
-    let queue = format!(
-        "/queue/client_acks_should_allow_redelivery-{}",
-        Uuid::new_v4()
-    );
+    let queue = format!("/queue/should_allow_timeout_on_consume-{}", Uuid::new_v4());
 
     client
         .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
@@ -300,4 +317,45 @@ async fn thing_to_test_timeouts() {
     client.disconnect().await.expect("disconnect");
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
+}
+
+#[tokio::test]
+async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
+    env_logger::try_init().unwrap_or_default();
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
+    let conn_task = tokio::spawn(conn);
+
+    let queue = format!(
+        "/queue/should_allow_disconnect_by_dropping_with_pending_deliveries-{}",
+        Uuid::new_v4()
+    );
+
+    let mut sub = client
+        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
+        .await
+        .expect("subscribe");
+    client.publish(&queue, b"first").await.expect("publish");
+    client.publish(&queue, b"second").await.expect("publish");
+    client.publish(&queue, b"third").await.expect("publish");
+
+    // A good-enough proxy for checking that we've had some deliveries.
+    let frame = sub.next().await.expect("consume_next");
+    assert_eq!(frame.body, b"first");
+    debug!("Consumed first");
+
+    info!("Disconnecting…");
+    // Disconnect by dropping client
+    drop(client);
+    info!("Disconnected…");
+
+    let res = conn_task.await;
+    assert!(res.is_ok(), "Conection exited normally");
+    info!("Disconnected first connection; reconnecting");
 }

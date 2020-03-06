@@ -76,8 +76,7 @@ pub(crate) fn wrap<T: AsyncRead + AsyncWrite>(inner: T) -> Framed<T, StompCodec>
     Framed::new(inner, StompCodec)
 }
 
-impl Encoder for StompCodec {
-    type Item = FrameOrKeepAlive;
+impl Encoder<FrameOrKeepAlive> for StompCodec {
     type Error = StompError;
     fn encode(&mut self, item: FrameOrKeepAlive, buf: &mut BytesMut) -> Result<()> {
         encode_frame(buf, &item)

@@ -19,7 +19,7 @@ use crate::connection::{
 use crate::errors::*;
 use crate::protocol::{AckMode, Frame, Headers};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     c2s: Sender<ClientReq>,
 }

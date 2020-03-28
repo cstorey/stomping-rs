@@ -7,7 +7,11 @@ use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
 };
-use futures::{future::FutureExt, sink::SinkExt, stream::Stream};
+use futures::{
+    future::{FutureExt, TryFutureExt},
+    sink::SinkExt,
+    stream::Stream,
+};
 
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
@@ -43,11 +47,8 @@ pub async fn connect<A: ToSocketAddrs>(
 
     let deadline = keepalive.map(|ka| Instant::now() + ka);
 
-    let (mux, c2s_tx) = maybe_timeout_at(deadline, async {
-        let conn = TcpStream::connect(a).await?;
-        connection::connect(conn, req).await
-    })
-    .await?;
+    let conn = maybe_timeout_at(deadline, TcpStream::connect(a).err_into()).await?;
+    let (mux, c2s_tx) = maybe_timeout_at(deadline, connection::connect(conn, req)).await?;
 
     let client = Client { c2s: c2s_tx };
     Ok((mux, client))

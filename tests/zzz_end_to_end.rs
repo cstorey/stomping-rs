@@ -384,7 +384,7 @@ async fn should_fail_when_we_force_an_error() {
     info!("Subscribing to queue");
     // there's no reply to a subscribe frame to wait for, so we won't know
     // it fails until we get the error frame.
-    let mut sub: Subscription = client
+    let mut _sub: Subscription = client
         .subscribe(&queue, "one", AckMode::Auto, Default::default())
         .await
         .expect("subscribe succeeds ok");

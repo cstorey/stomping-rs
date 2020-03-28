@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use futures::stream::StreamExt;
 use stomping::*;
+use tokio::time::timeout;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -358,4 +359,43 @@ async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
     info!("Disconnected first connection; reconnecting");
+}
+
+#[tokio::test]
+async fn should_fail_when_we_force_an_error() {
+    env_logger::try_init().unwrap_or_default();
+    let (conn, mut client) = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await
+    .expect("connect");
+    let conn_task = tokio::spawn(async {
+        debug!("Starting connection");
+        let res = conn.await;
+        debug!("Connection terminated: {:?}", res);
+        res
+    });
+
+    let queue = format!("/invalid-thing/can_round_trip_text-{}", Uuid::new_v4());
+
+    info!("Subscribing to queue");
+    // there's no reply to a subscribe frame to wait for, so we won't know
+    // it fails until we get the error frame.
+    let mut _sub: Subscription = client
+        .subscribe(&queue, "one", AckMode::Auto, Default::default())
+        .await
+        .expect("subscribe succeeds ok");
+
+    let res = timeout(Duration::from_millis(1000), conn_task)
+        .await
+        .expect("no timeout")
+        .expect("joins okay");
+
+    match res.expect_err("has error") {
+        StompError::StompError { .. } => {}
+        e => panic!("Unexpected error: Got: {:?}", e),
+    }
 }

@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, fmt};
+
 use thiserror::Error;
 
 use crate::parser::ParseError;
@@ -7,8 +9,8 @@ pub type Result<T> = std::result::Result<T, StompError>;
 
 #[derive(Debug, Error)]
 pub enum StompError {
-    #[error("stomp error: {0:?}")]
-    StompError(Frame),
+    #[error("stomp error: {0}")]
+    StompError(ErrorFrame),
     #[error("Protocol error")]
     ProtocolError,
     #[error("Tried to ack a frame with no `ack` header")]
@@ -35,27 +37,31 @@ pub enum StompError {
     TimedOut(#[from] tokio::time::Elapsed),
 }
 
-#[cfg(never)]
-error_chain! (
-    foreign_links {
-        io::Error, Io;
-        num::ParseIntError, ParseInt;
-        time::SystemTimeError, SystemTime;
-    }
+pub struct ErrorFrame {
+    headers: BTreeMap<String, String>,
+}
 
-    errors {
-        StompError(command: String, headers:BTreeMap<String, String>, body: String) {
-            description("stomp error")
-            display("stomp error: {}: {:?}: {:?}", command, headers, body)
-        }
-        ProtocolError {
-            description("protocol error")
-        }
-        NoAckHeader {
-            description("Tried to ack a frame with no `ack` header")
-        }
-        PeerFailed {
-            description("peer seems to be unresponsive")
+impl From<Frame> for ErrorFrame {
+    fn from(src: Frame) -> Self {
+        let Frame { headers, .. } = src;
+        ErrorFrame { headers }
+    }
+}
+
+impl fmt::Debug for ErrorFrame {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("ErrorFrame")
+            .field("headers", &self.headers)
+            .finish()
+    }
+}
+
+impl fmt::Display for ErrorFrame {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(msg) = self.headers.get("message") {
+            write!(fmt, "From server: {}", msg)
+        } else {
+            write!(fmt, "(Unknown error)")
         }
     }
-);
+}

@@ -7,11 +7,18 @@ use futures::channel::{
     mpsc::{channel, Receiver, Sender},
     oneshot,
 };
-use futures::{future::FutureExt, sink::SinkExt, stream::Stream};
+use futures::{
+    future::{FutureExt, TryFutureExt},
+    sink::SinkExt,
+    stream::Stream,
+};
 
 use log::*;
-use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::time::timeout;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::{TcpStream, ToSocketAddrs},
+    time::{timeout_at, Instant},
+};
 
 use crate::connection::{
     self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,
@@ -35,26 +42,55 @@ pub async fn connect<A: ToSocketAddrs>(
     keepalive: Option<Duration>,
     headers: Headers,
 ) -> Result<(impl Future<Output = Result<()>>, Client)> {
+    let deadline = keepalive.map(|ka| Instant::now() + ka);
+
+    let conn = maybe_timeout_at(deadline, TcpStream::connect(a).err_into()).await?;
+
+    connect_inner(conn, credentials, keepalive, deadline, headers).await
+}
+
+pub async fn connect_on<C: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    conn: C,
+    credentials: Option<(&str, &str)>,
+    keepalive: Option<Duration>,
+    headers: Headers,
+) -> Result<(impl Future<Output = Result<()>>, Client)> {
+    let deadline = keepalive.map(|ka| Instant::now() + ka);
+
+    connect_inner(conn, credentials, keepalive, deadline, headers).await
+}
+
+async fn connect_inner<C: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    conn: C,
+    credentials: Option<(&str, &str)>,
+    keepalive: Option<Duration>,
+    deadline: Option<Instant>,
+    headers: Headers,
+) -> Result<(impl Future<Output = Result<()>>, Client)> {
     let req = ConnectReq {
         credentials: credentials.map(|(u, p)| (u.to_string(), p.to_string())),
         keepalive,
         headers,
     };
 
-    let connect_f = async {
-        let conn = TcpStream::connect(a).await?;
-        connection::connect(conn, req).await
-    };
-    let connect_f = if let Some(ka) = keepalive {
-        timeout(ka, connect_f).left_future()
-    } else {
-        connect_f.map(Ok).right_future()
-    };
-
-    let (mux, c2s_tx) = connect_f.await??;
+    let (mux, c2s_tx) = maybe_timeout_at(deadline, connection::connect(conn, req)).await?;
 
     let client = Client { c2s: c2s_tx };
     Ok((mux, client))
+}
+
+async fn maybe_timeout_at<T, F: Future<Output = Result<T>>>(
+    deadline: Option<Instant>,
+    fut: F,
+) -> Result<T> {
+    let res = if let Some(dl) = deadline {
+        timeout_at(dl, fut).left_future()
+    } else {
+        fut.map(Ok).right_future()
+    }
+    .await??;
+
+    Ok(res)
 }
 
 impl Client {

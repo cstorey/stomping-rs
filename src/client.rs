@@ -11,7 +11,7 @@ use futures::{future::FutureExt, sink::SinkExt, stream::Stream};
 
 use log::*;
 use tokio::net::{TcpStream, ToSocketAddrs};
-use tokio::time::timeout;
+use tokio::time::{timeout_at, Instant};
 
 use crate::connection::{
     self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,
@@ -41,20 +41,30 @@ pub async fn connect<A: ToSocketAddrs>(
         headers,
     };
 
-    let connect_f = async {
+    let deadline = keepalive.map(|ka| Instant::now() + ka);
+
+    let (mux, c2s_tx) = maybe_timeout_at(deadline, async {
         let conn = TcpStream::connect(a).await?;
         connection::connect(conn, req).await
-    };
-    let connect_f = if let Some(ka) = keepalive {
-        timeout(ka, connect_f).left_future()
-    } else {
-        connect_f.map(Ok).right_future()
-    };
-
-    let (mux, c2s_tx) = connect_f.await??;
+    })
+    .await?;
 
     let client = Client { c2s: c2s_tx };
     Ok((mux, client))
+}
+
+async fn maybe_timeout_at<T, F: Future<Output = Result<T>>>(
+    deadline: Option<Instant>,
+    fut: F,
+) -> Result<T> {
+    let res = if let Some(dl) = deadline {
+        timeout_at(dl, fut).left_future()
+    } else {
+        fut.map(Ok).right_future()
+    }
+    .await??;
+
+    Ok(res)
 }
 
 impl Client {

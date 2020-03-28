@@ -101,10 +101,10 @@ async fn run_connection<T: AsyncRead + AsyncWrite + Send + 'static>(
     let (subs_a, subs_b) = BiLock::new(ConnectionState::default());
     let c2s = run_c2s(a, subs_a, c2s_rx, c2s_ka)
         .inspect_ok(|&()| info!("c2s exited ok"))
-        .inspect_err(|e| error!("c2s exited with: {:?}", e));
+        .inspect_err(|e| error!("c2s exited with: {}", e));
     let s2c = run_s2c(b, subs_b, s2c_ka)
         .inspect_ok(|&()| info!("s2c exited ok"))
-        .inspect_err(|e| error!("s2c exited with: {:?}", e));
+        .inspect_err(|e| error!("s2c exited with: {}", e));
     debug!("Built connection process");
 
     // Exit, and cancel the other, when _any one_ of these processes exits.
@@ -245,8 +245,8 @@ async fn run_s2c(
                         }
                     }
                     Command::Error => {
-                        error!("Error frame received: {:?}", frame.headers);
-                        return Err(StompError::StompError(frame));
+                        warn!("Error frame received: {:?}", frame.headers);
+                        return Err(StompError::StompError(frame.into()));
                     }
                     _ => warn!("Unhandled frame type from server: {:?}", frame.command),
                 }
@@ -285,7 +285,7 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
             "Error response from server: {:?}: {:?}",
             frame.command, frame.headers
         );
-        return Err(StompError::StompError(frame).into());
+        return Err(StompError::StompError(frame.into()).into());
     } else if frame.command != Command::Connected {
         warn!(
             "Bad response from server: {:?}: {:?}",

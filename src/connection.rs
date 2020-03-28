@@ -244,6 +244,10 @@ async fn run_s2c(
                             trace!("Acked receipt: {:?}", receipt_id)
                         }
                     }
+                    Command::Error => {
+                        error!("Error frame received: {:?}", frame.headers);
+                        return Err(StompError::StompError(frame));
+                    }
                     _ => warn!("Unhandled frame type from server: {:?}", frame.command),
                 }
             }

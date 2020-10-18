@@ -13,7 +13,7 @@ use url::Url;
 
 use stomping::*;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let matches = App::new("listener")
         .version("?")

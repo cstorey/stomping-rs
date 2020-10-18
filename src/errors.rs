@@ -34,7 +34,7 @@ pub enum StompError {
     #[error("Connection dropped: {0}")]
     ConnectionDropped2(#[from] futures::channel::oneshot::Canceled),
     #[error("Timeout: {0}")]
-    TimedOut(#[from] tokio::time::Elapsed),
+    TimedOut(#[from] tokio::time::error::Elapsed),
 }
 
 pub struct ErrorFrame {

@@ -44,7 +44,7 @@ pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<FrameOrKeepAliv
 }
 
 fn run_parse(input: &[u8]) -> IResult<&[u8], FrameOrKeepAlive> {
-    let p = alt((
+    let mut p = alt((
         map(parse_inner, FrameOrKeepAlive::Frame),
         map(parse_keepalive, |()| FrameOrKeepAlive::KeepAlive),
     ));
@@ -111,8 +111,10 @@ fn parse_header(input: &[u8]) -> IResult<&[u8], (String, String)> {
 
     let (input, _) = newline(input)?;
 
-    let name = String::from_utf8(name).map_err(|_| nom::Err::Error((input, ErrorKind::Char)))?;
-    let value = String::from_utf8(value).map_err(|_| nom::Err::Error((input, ErrorKind::Char)))?;
+    let name = String::from_utf8(name)
+        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, ErrorKind::Char)))?;
+    let value = String::from_utf8(value)
+        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, ErrorKind::Char)))?;
 
     Ok((input, (name, value)))
 }
@@ -128,46 +130,49 @@ fn parse_body(content_length: Option<usize>, input: &[u8]) -> IResult<&[u8], &[u
 }
 
 fn parse_header_char(input: &[u8]) -> IResult<&[u8], u8> {
-    match input
-        .split_first()
-        .ok_or(nom::Err::Incomplete(nom::Needed::Size(1)))?
-    {
-        (b'\n', input) => Err(nom::Err::Error((input, ErrorKind::Char))),
-        (b':', input) => Err(nom::Err::Error((input, ErrorKind::Char))),
-        (b'\\', input) => {
-            match input
-                .split_first()
-                .ok_or(nom::Err::Incomplete(nom::Needed::Size(1)))?
-            {
-                (b'c', input) => Ok((input, b':')),
-                (b'\\', input) => Ok((input, b'\\')),
-                (b'r', input) => Ok((input, b'\r')),
-                (b'n', input) => Ok((input, b'\n')),
-                _ => Err(nom::Err::Error((input, ErrorKind::Char))),
-            }
-        }
+    let needed = nom::Needed::Size(std::num::NonZeroUsize::new(1).unwrap());
+    match input.split_first().ok_or(nom::Err::Incomplete(needed))? {
+        (b'\n', input) => Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            ErrorKind::Char,
+        ))),
+        (b':', input) => Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            ErrorKind::Char,
+        ))),
+        (b'\\', input) => match input.split_first().ok_or(nom::Err::Incomplete(needed))? {
+            (b'c', input) => Ok((input, b':')),
+            (b'\\', input) => Ok((input, b'\\')),
+            (b'r', input) => Ok((input, b'\r')),
+            (b'n', input) => Ok((input, b'\n')),
+            _ => Err(nom::Err::Error(nom::error::Error::new(
+                input,
+                ErrorKind::Char,
+            ))),
+        },
         (ch, input) => Ok((input, *ch)),
     }
 }
 
-impl<'a> From<(&'a [u8], nom::error::ErrorKind)> for ParseError {
-    fn from((remaining, kind): (&'a [u8], nom::error::ErrorKind)) -> Self {
+impl<'a> From<nom::error::Error<&[u8]>> for ParseError {
+    fn from(e: nom::error::Error<&[u8]>) -> Self {
+        // let (remaining, kind): (&'a [u8], nom::error::ErrorKind) = ();
         const MAX_SNIPPET: usize = 80;
-        if remaining.len() > MAX_SNIPPET {
-            let remaining = remaining[..MAX_SNIPPET].to_vec();
+        if e.input.len() > MAX_SNIPPET {
+            let remaining = e.input[..MAX_SNIPPET].to_vec();
             let truncated = true;
             ParseError {
                 remaining,
                 truncated,
-                kind,
+                kind: e.code,
             }
         } else {
-            let remaining = remaining.to_vec();
+            let remaining = e.input.to_vec();
             let truncated = false;
             ParseError {
                 remaining,
                 truncated,
-                kind,
+                kind: e.code,
             }
         }
     }

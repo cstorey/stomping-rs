@@ -10,7 +10,7 @@ thiserror = "1.0.9"
 nom = "6.0.0"
 bytes = "0.6.0"
 maplit = "1.0.2"
-tokio = { version = "0.3.0", features = ["sync", "stream", "net", "time",] }
+tokio = { version = "1.0.1", features = ["sync", "stream", "net", "time",] }
 futures = { version = "0.3.4", features = ["bilock","unstable"] }
 tokio-util = { version = "0.5.0", features = ["codec"] }
 
@@ -20,7 +20,7 @@ env_logger = "0.8.1"
 url = "2.0.0"
 uuid = { version = "0.8.0", features = ["v4"] }
 suppositions = "0.1.4"
-tokio = {version="0.3", features=["macros", "rt", "net"]}
+tokio = {version="1.0", features=["macros", "rt", "net"]}
 percent-encoding = "2.1.0"
 
 [features]

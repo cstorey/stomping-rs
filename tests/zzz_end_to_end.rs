@@ -1,13 +1,9 @@
 #![cfg(not(feature = "skip-end-to-end"))]
-use env_logger;
-use tokio;
-
-#[macro_use]
-extern crate log;
 
 use std::time::Duration;
 
 use futures::stream::StreamExt;
+use log::*;
 use stomping::*;
 use tokio::time::timeout;
 use uuid::Uuid;

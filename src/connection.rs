@@ -285,13 +285,13 @@ pub(crate) async fn connect<T: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
             "Error response from server: {:?}: {:?}",
             frame.command, frame.headers
         );
-        return Err(StompError::StompError(frame.into()).into());
+        return Err(StompError::StompError(frame.into()));
     } else if frame.command != Command::Connected {
         warn!(
             "Bad response from server: {:?}: {:?}",
             frame.command, frame.headers,
         );
-        return Err(StompError::ProtocolError.into());
+        return Err(StompError::ProtocolError);
     }
 
     let (sx, sy) = parse_keepalive(frame.headers.get("heart-beat").map(|s| &**s))?;
@@ -353,7 +353,7 @@ impl SubscribeReq {
 
         Frame {
             command: Command::Subscribe,
-            headers: headers,
+            headers,
             body: Vec::new(),
         }
     }
@@ -407,7 +407,6 @@ impl ConnectReq {
 #[cfg(test)]
 mod test {
     use super::*;
-    use env_logger;
     use std::time::Duration;
 
     #[test]
@@ -457,7 +456,7 @@ mod test {
             ack_mode: AckMode::Auto,
             destination: Default::default(),
             id: Default::default(),
-            messages: messages,
+            messages,
             headers: btreemap! {
                 "x-canary".into() => "Hi!".into(),
             },

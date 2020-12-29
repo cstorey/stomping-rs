@@ -10,7 +10,7 @@ thiserror = "1.0.9"
 nom = "6.0.0"
 bytes = "1.0.0"
 maplit = "1.0.2"
-tokio = { version = "1.0.1", features = ["sync", "net", "time",] }
+tokio = { version = "1.0.1", features = [] }
 futures = { version = "0.3.4", features = ["bilock","unstable"] }
 tokio-util = { version = "0.6.0", features = ["codec"] }
 

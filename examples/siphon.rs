@@ -1,14 +1,9 @@
-use env_logger;
-
-#[macro_use]
-extern crate clap;
-
 use std::time::Duration;
 
+use clap::value_t;
 use clap::{App, Arg};
 use futures::stream::StreamExt;
 use percent_encoding::percent_decode_str;
-use tokio;
 use url::Url;
 
 use stomping::*;

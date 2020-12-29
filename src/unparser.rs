@@ -17,7 +17,7 @@ fn encode_inner(buf: &mut BytesMut, frame: &Frame) -> Result<()> {
     buf.put_u8(b'\n');
 
     for (k, v) in frame.headers.iter() {
-        if k.len() == 0 {
+        if k.is_empty() {
             return Err(StompError::ProtocolError);
         }
         encode_header_label(buf, k);
@@ -242,7 +242,7 @@ mod tests {
 
             assert_eq!(frame, parsed);
             assert!(
-                buf.len() == 0,
+                buf.is_empty(),
                 "Remaining should be empty: {}",
                 String::from_utf8_lossy(&buf)
             )
@@ -270,7 +270,7 @@ mod tests {
 
         assert_eq!(frame, parsed);
         assert!(
-            buf.len() == 0,
+            buf.is_empty(),
             "Remaining should be empty: {}",
             String::from_utf8_lossy(&buf)
         )
@@ -297,7 +297,7 @@ mod tests {
 
         assert_eq!(frame, parsed);
         assert!(
-            buf.len() == 0,
+            buf.is_empty(),
             "Remaining should be empty: {}",
             String::from_utf8_lossy(&buf)
         )
@@ -326,7 +326,7 @@ mod tests {
             .or(consts(Command::Receipt))
             .or(consts(Command::Error));
 
-        let headers = collections((strings(), strings()).filter(|&(ref k, _)| k.len() != 0));
+        let headers = collections((strings(), strings()).filter(|&(ref k, _)| !k.is_empty()));
 
         let bodies = vecs(u8s());
         (commands, headers, bodies).map(|(command, headers, body)| Frame {

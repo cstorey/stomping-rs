@@ -47,8 +47,8 @@ pub enum FrameOrKeepAlive {
 impl AckMode {
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
-            &AckMode::Auto => "auto",
-            &AckMode::ClientIndividual => "client-individual",
+            AckMode::Auto => "auto",
+            AckMode::ClientIndividual => "client-individual",
         }
     }
 }

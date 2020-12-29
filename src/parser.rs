@@ -37,9 +37,9 @@ pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<FrameOrKeepAliv
 
             Ok(Some(frame))
         }
-        Err(Err::Incomplete(_)) => return Ok(None),
-        Err(Err::Error(e)) => return Err(e.into()),
-        Err(Err::Failure(e)) => return Err(e.into()),
+        Err(Err::Incomplete(_)) => Ok(None),
+        Err(Err::Error(e)) => Err(e.into()),
+        Err(Err::Failure(e)) => Err(e.into()),
     }
 }
 

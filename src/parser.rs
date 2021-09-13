@@ -93,7 +93,7 @@ fn parse_command(input: &[u8]) -> IResult<&[u8], Command> {
 }
 
 fn parse_headers(input: &[u8]) -> IResult<&[u8], Headers> {
-    let (input, headers) = fold_many0(parse_header, Headers::new(), |mut headers, (k, v)| {
+    let (input, headers) = fold_many0(parse_header, Headers::new, |mut headers, (k, v)| {
         headers.insert(k, v);
         headers
     })(input)?;

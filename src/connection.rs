@@ -388,7 +388,7 @@ impl ConnectReq {
     fn to_frame(&self) -> Frame {
         let mut conn_headers = self.headers.clone();
         conn_headers.insert("accept-version".into(), "1.2".into());
-        if let Some(ref duration) = self.keepalive.as_ref() {
+        if let Some(duration) = self.keepalive.as_ref() {
             let millis = duration.as_millis();
             conn_headers.insert("heart-beat".into(), format!("{},{}", millis, millis));
         }

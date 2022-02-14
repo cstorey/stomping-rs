@@ -12,7 +12,7 @@ bytes = "1.0.0"
 maplit = "1.0.2"
 tokio = { version = "1.0.1", features = [] }
 futures = { version = "0.3.4", features = ["bilock","unstable"] }
-tokio-util = { version = "0.6.0", features = ["codec"] }
+tokio-util = { version = "0.7.0", features = ["codec"] }
 
 [dev-dependencies]
 clap = "2.10.2"

@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use clap::value_t;
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use futures::stream::StreamExt;
 use percent_encoding::percent_decode_str;
 use url::Url;
@@ -10,18 +9,13 @@ use stomping::*;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let matches = App::new("listener")
+    let matches = Command::new("listener")
         .version("?")
         .author("Ceri Storey")
+        .arg(Arg::new("url").help("Target url").index(1).required(true))
         .arg(
-            Arg::with_name("url")
-                .help("Target url")
-                .index(1)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("heartbeat")
-                .short("k")
+            Arg::new("heartbeat")
+                .short('k')
                 .help("Heartbeat interval in seconds")
                 .takes_value(true),
         )
@@ -31,7 +25,7 @@ async fn main() {
 
     let url = Url::parse(matches.value_of("url").expect("url parameter")).expect("parsing as URL");
     let heartbeat = if matches.is_present("heartbeat") {
-        let secs = value_t!(matches, "heartbeat", u64).unwrap_or_else(|e| e.exit());
+        let secs = matches.value_of_t_or_exit("heartbeat");
         Some(Duration::new(secs, 0))
     } else {
         None

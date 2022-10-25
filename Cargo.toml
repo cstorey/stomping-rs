@@ -15,13 +15,10 @@ futures = { version = "0.3.4", features = ["bilock","unstable"] }
 tokio-util = { version = "0.7.0", features = ["codec"] }
 
 [dev-dependencies]
-clap = "3.1.1"
 env_logger = "0.9.0"
-url = "2.0.0"
 uuid = { version = "1.0.0", features = ["v4"] }
 suppositions = "0.1.4"
 tokio = {version="1.0.1", features=["macros", "rt", "net", "time"]}
-percent-encoding = "2.1.0"
 
 [features]
 # To skip end to end tests on CI

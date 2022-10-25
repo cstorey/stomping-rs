@@ -71,10 +71,7 @@ mod tests {
 
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
-        assert_eq!(
-            &*"SEND\n\n\0",
-            std::str::from_utf8(&buf).expect("from utf8")
-        );
+        assert_eq!("SEND\n\n\0", std::str::from_utf8(&buf).expect("from utf8"));
     }
 
     #[test]
@@ -89,7 +86,7 @@ mod tests {
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
-            &*"SEND\nhello:world\n\n\0",
+            "SEND\nhello:world\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
@@ -106,7 +103,7 @@ mod tests {
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
-            &*"SEND\nfoo\\cbar:y\n\n\0",
+            "SEND\nfoo\\cbar:y\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
@@ -123,7 +120,7 @@ mod tests {
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
-            &*"SEND\ndestination:/queue/hello\\cworld\n\n\0",
+            "SEND\ndestination:/queue/hello\\cworld\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
@@ -140,7 +137,7 @@ mod tests {
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
-            &*"SEND\n\\n:y\n\n\0",
+            "SEND\n\\n:y\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
@@ -157,7 +154,7 @@ mod tests {
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
-            &*"SEND\nheader:\\\\\n\n\0",
+            "SEND\nheader:\\\\\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
@@ -175,7 +172,7 @@ mod tests {
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
         assert_eq!(
-            &*"SEND\nx:\\r\n\n\0",
+            "SEND\nx:\\r\n\n\0",
             std::str::from_utf8(&buf).expect("from utf8")
         );
     }
@@ -206,10 +203,7 @@ mod tests {
 
         encode_frame(&mut buf, &FrameOrKeepAlive::Frame(frame)).expect("encode frame");
 
-        assert_eq!(
-            &*"SEND\n\nx\0",
-            std::str::from_utf8(&buf).expect("from utf8")
-        );
+        assert_eq!("SEND\n\nx\0", std::str::from_utf8(&buf).expect("from utf8"));
     }
 
     #[test]
@@ -218,7 +212,7 @@ mod tests {
 
         encode_frame(&mut buf, &FrameOrKeepAlive::KeepAlive).expect("encode frame");
 
-        assert_eq!(&*"\n", std::str::from_utf8(&buf).expect("from utf8"));
+        assert_eq!("\n", std::str::from_utf8(&buf).expect("from utf8"));
     }
 
     #[test]

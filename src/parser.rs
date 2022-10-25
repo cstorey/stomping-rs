@@ -154,7 +154,7 @@ fn parse_header_char(input: &[u8]) -> IResult<&[u8], u8> {
     }
 }
 
-impl<'a> From<nom::error::Error<&[u8]>> for ParseError {
+impl From<nom::error::Error<&[u8]>> for ParseError {
     fn from(e: nom::error::Error<&[u8]>) -> Self {
         // let (remaining, kind): (&'a [u8], nom::error::ErrorKind) = ();
         const MAX_SNIPPET: usize = 80;
@@ -239,7 +239,7 @@ mod tests {
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Send);
-        assert_eq!(&*frame.body, &*b"wibble");
+        assert_eq!(&*frame.body, b"wibble");
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"" as &[u8], &data);
         assert_eq!(frame.command, Command::Send);
-        assert_eq!(&*frame.body, &*b"foo\0bar");
+        assert_eq!(&*frame.body, b"foo\0bar");
     }
 
     #[test]
@@ -282,7 +282,7 @@ mod tests {
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"\n" as &[u8], &data);
         assert_eq!(frame.command, Command::Connected);
-        assert_eq!(&*frame.body, &*b"");
+        assert_eq!(&*frame.body, b"");
     }
     #[test]
     fn rabbitmq_example() {
@@ -302,6 +302,6 @@ mod tests {
         let frame = result.expect("some frame").unwrap_frame();
         assert_eq!(b"\n" as &[u8], &data);
         assert_eq!(frame.command, Command::Connected);
-        assert_eq!(&*frame.body, &*b"");
+        assert_eq!(&*frame.body, b"");
     }
 }

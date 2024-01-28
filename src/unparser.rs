@@ -320,7 +320,7 @@ mod tests {
             .or(consts(Command::Receipt))
             .or(consts(Command::Error));
 
-        let headers = collections((strings(), strings()).filter(|&(ref k, _)| !k.is_empty()));
+        let headers = collections((strings(), strings()).filter(|(k, _)| !k.is_empty()));
 
         let bodies = vecs(u8s());
         (commands, headers, bodies).map(|(command, headers, body)| Frame {

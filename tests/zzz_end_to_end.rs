@@ -3,9 +3,9 @@
 use std::time::Duration;
 
 use futures::stream::StreamExt;
-use log::*;
 use stomping::*;
 use tokio::time::timeout;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -41,7 +41,7 @@ async fn can_round_trip_text() {
     let frame: Frame = sub.next().await.expect("consume_next");
     info!("Consumed item");
 
-    assert_eq!(&*body, &*frame.body);
+    assert_eq!(body, &*frame.body);
     client.disconnect().await.expect("disconnect");
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");

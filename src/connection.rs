@@ -11,13 +11,13 @@ use futures::{
     sink::{Sink, SinkExt},
     stream::{Stream, StreamExt},
 };
-use log::*;
 use maplit::btreemap;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     time::timeout,
 };
 use tokio_util::codec::{Decoder, Encoder, Framed};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::errors::*;
 use crate::parser::parse_frame;
@@ -411,7 +411,7 @@ mod test {
 
     #[test]
     fn keepalives_parse_zero_as_none_0() {
-        env_logger::try_init().unwrap_or_default();
+        tracing_subscriber::fmt::try_init().unwrap_or_default();
         assert_eq!(
             parse_keepalive(Some("0,0")).expect("parse_keepalive"),
             (None, None)
@@ -420,7 +420,7 @@ mod test {
 
     #[test]
     fn keepalives_parse_zero_as_none_1() {
-        env_logger::try_init().unwrap_or_default();
+        tracing_subscriber::fmt::try_init().unwrap_or_default();
         assert_eq!(
             parse_keepalive(Some("0,42")).expect("parse_keepalive"),
             (None, Some(Duration::from_millis(42)))
@@ -429,7 +429,7 @@ mod test {
 
     #[test]
     fn keepalives_parse_zero_as_none_2() {
-        env_logger::try_init().unwrap_or_default();
+        tracing_subscriber::fmt::try_init().unwrap_or_default();
         assert_eq!(
             parse_keepalive(Some("42,0")).expect("parse_keepalive"),
             (Some(Duration::from_millis(42)), None)

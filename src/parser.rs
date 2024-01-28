@@ -266,7 +266,7 @@ mod tests {
     // ActiveMQ includes literal colons in their header values.
     #[test]
     fn activemq_example() {
-        env_logger::try_init().unwrap_or_default();
+        tracing_subscriber::fmt::try_init().unwrap_or_default();
 
         let mut data = BytesMut::from(
             b"CONNECTED\n\
@@ -286,7 +286,7 @@ mod tests {
     }
     #[test]
     fn rabbitmq_example() {
-        env_logger::try_init().unwrap_or_default();
+        tracing_subscriber::fmt::try_init().unwrap_or_default();
 
         let mut data = BytesMut::from(
             b"CONNECTED\n\

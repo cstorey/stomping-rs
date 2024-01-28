@@ -13,12 +13,12 @@ use futures::{
     stream::Stream,
 };
 
-use log::*;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::{TcpStream, ToSocketAddrs},
     time::{timeout_at, Instant},
 };
+use tracing::trace;
 
 use crate::connection::{
     self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,

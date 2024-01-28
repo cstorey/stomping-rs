@@ -9,23 +9,12 @@ save_registry: &SAVE_REGISTRY
     key: registry-{{ .BuildNum }}
     paths:
     - /usr/local/cargo/registry/index
-deps_key: &DEPS_KEY
-  key: deps-{{ checksum "~/rust-version" }}-{{ checksum "Cargo.lock" }}
-restore_deps: &RESTORE_DEPS
-  restore_cache:
-    <<: *DEPS_KEY
-save_deps: &SAVE_DEPS
-  save_cache:
-    <<: *DEPS_KEY
-    paths:
-    - target
-    - /usr/local/cargo/registry/cache
 
 version: 2.1
 jobs:
   buildtest:
     docker:
-      - image: cimg/rust:1.65
+      - image: cimg/rust:1.75
         environment:
           RUSTFLAGS: -D warnings
           MERGE_BASE: main
@@ -41,12 +30,9 @@ jobs:
       - run: rustfmt --version
       - run: cargo fmt -- --check
       - *RESTORE_REGISTRY
-      - run: cargo generate-lockfile
-      - *SAVE_REGISTRY
       - run: rustc --version | tee ~/rust-version
-      - *RESTORE_DEPS
       - run: cargo build --all --tests --features skip-end-to-end
-      - *SAVE_DEPS
+      - *SAVE_REGISTRY
       - run: cargo test --all --features skip-end-to-end
       - run: sudo ./.circleci/install-rabbitmq.sh
       - run: cargo test --all

@@ -219,7 +219,7 @@ mod tests {
     fn should_round_trip_frames_without_content_length() {
         use crate::parser::parse_frame;
 
-        env_logger::try_init().unwrap_or(());
+        tracing_subscriber::fmt::try_init().unwrap_or(());
         let frames = frames().map(|mut frame| {
             let body = frame.body.drain(..).filter(|b| *b != 0).collect();
             frame.body = body;
@@ -320,7 +320,7 @@ mod tests {
             .or(consts(Command::Receipt))
             .or(consts(Command::Error));
 
-        let headers = collections((strings(), strings()).filter(|&(ref k, _)| !k.is_empty()));
+        let headers = collections((strings(), strings()).filter(|(k, _)| !k.is_empty()));
 
         let bodies = vecs(u8s());
         (commands, headers, bodies).map(|(command, headers, body)| Frame {

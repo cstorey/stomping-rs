@@ -3,14 +3,14 @@
 use std::time::Duration;
 
 use futures::stream::StreamExt;
-use log::*;
 use stomping::*;
 use tokio::time::timeout;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 #[tokio::test]
 async fn can_round_trip_text() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -41,7 +41,7 @@ async fn can_round_trip_text() {
     let frame: Frame = sub.next().await.expect("consume_next");
     info!("Consumed item");
 
-    assert_eq!(&*body, &*frame.body);
+    assert_eq!(body, &*frame.body);
     client.disconnect().await.expect("disconnect");
     let res = conn_task.await;
     assert!(res.is_ok(), "Conection exited normally");
@@ -49,7 +49,7 @@ async fn can_round_trip_text() {
 
 #[tokio::test]
 async fn can_round_trip_binary_blobs() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -78,7 +78,7 @@ async fn can_round_trip_binary_blobs() {
 
 #[tokio::test]
 async fn client_acks_should_allow_redelivery() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -137,7 +137,7 @@ async fn client_acks_should_allow_redelivery() {
 
 #[tokio::test]
 async fn can_encode_headers_correctly() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     debug!("Connecting");
     let (conn, mut client) = connect(
         ("localhost", 61613),
@@ -168,7 +168,7 @@ async fn can_encode_headers_correctly() {
 
 #[tokio::test]
 async fn should_allow_acking_individual_messages() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -251,7 +251,7 @@ async fn should_allow_acking_individual_messages() {
 #[cfg(todo)]
 #[tokio::test]
 async fn should_allow_timeout_on_consume() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -291,7 +291,7 @@ async fn should_allow_timeout_on_consume() {
 #[tokio::test]
 #[ignore]
 async fn thing_to_test_timeouts() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -318,7 +318,7 @@ async fn thing_to_test_timeouts() {
 
 #[tokio::test]
 async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
@@ -359,7 +359,7 @@ async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
 
 #[tokio::test]
 async fn should_fail_when_we_force_an_error() {
-    env_logger::try_init().unwrap_or_default();
+    tracing_subscriber::fmt::try_init().unwrap_or_default();
     let (conn, mut client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),

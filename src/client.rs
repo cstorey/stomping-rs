@@ -18,7 +18,7 @@ use tokio::{
     net::{TcpStream, ToSocketAddrs},
     time::{timeout_at, Instant},
 };
-use tracing::trace;
+use tracing::{trace, warn};
 
 use crate::connection::{
     self, AckReq, ClientReq, ConnectReq, DisconnectReq, PublishReq, SubscribeReq,
@@ -127,7 +127,19 @@ impl Client {
         let id = "42".into();
 
         let req = DisconnectReq { done, id };
-        self.c2s.send(ClientReq::Disconnect(req)).await?;
+        self.c2s
+            .send(ClientReq::Disconnect(req))
+            .await
+            .or_else(|err| {
+                if err.is_disconnected() {
+                    // If you're looking at this, and wondering why it's not tested, then yes
+                    // it's because I'm quite, quite lazy.
+                    warn!(?err, "Attempting to disconnect disconnected client");
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            })?;
 
         rx.await?;
 

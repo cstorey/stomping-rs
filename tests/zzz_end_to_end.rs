@@ -247,46 +247,6 @@ async fn should_allow_acking_individual_messages() {
     assert!(res.is_ok(), "Conection exited normally");
 }
 
-// This should be replaced with useful use of timeouts.
-#[cfg(todo)]
-#[tokio::test]
-async fn should_allow_timeout_on_consume() {
-    tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
-
-    let queue = format!("/queue/should_allow_timeout_on_consume-{}", Uuid::new_v4());
-
-    client
-        .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
-        .await
-        .expect("subscribe");
-    let timeout = Duration::from_millis(500);
-    let cons_start = SystemTime::now();
-    debug!("Starting consume at {:?}", cons_start);
-    // was maybe_consume_next(timeout)
-    let resp = sub.next().await.expect("consume_next");
-    let duration = cons_start.elapsed().expect("elapsed");
-    debug!("consume done in {:?}", duration);
-    assert!(resp.is_none());
-    assert!(duration >= timeout);
-
-    client.publish(&queue, b"first").await.expect("publish");
-    // was maybe_consume_next(timeout)
-    let resp = sub.next().await.expect("consume_next");
-    let frame = resp.expect("a message");
-    assert_eq!(frame.body, b"first");
-    let res = conn_task.await;
-    assert!(res.is_ok(), "Conection exited normally");
-}
-
 // This test never actually terminates.
 #[tokio::test]
 #[ignore]

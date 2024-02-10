@@ -1,0 +1,22 @@
+version: "3"
+
+services:
+  rabbitmq:
+    # You'll also need to run:
+    # docker exec stomping-rs-rabbitmq-1 rabbitmq-plugins enable rabbitmq_stomp
+    image: rabbitmq:3.12.12-management
+    restart: always
+    ports:
+      - "15679:15672"
+      - "5679:5672"
+      - "61613:61613"
+    healthcheck:
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 30s
+      test:
+        - "CMD"
+        - "rabbitmq-diagnostics"
+        - "-q"
+        - "check_running"

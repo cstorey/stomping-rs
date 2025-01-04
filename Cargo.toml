@@ -21,5 +21,5 @@ tokio = {version="1.0.1", features=["macros", "rt", "net", "time"]}
 tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
 
 [features]
-# To skip end to end tests on CI
-skip-end-to-end = []
+# To run end to end tests on CI
+end-to-end = []

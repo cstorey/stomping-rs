@@ -41,7 +41,7 @@ pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<FrameOrKeepAliv
             Ok(Some(frame))
         }
         Err(Err::Incomplete(needed)) => {
-            trace!(?needed, "Incomplete frame parse");
+            trace!(?needed, have=?input.len(), "Incomplete frame parse");
             Ok(None)
         }
         Err(Err::Error(e)) => Err(e.into()),

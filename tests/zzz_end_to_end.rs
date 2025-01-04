@@ -1,4 +1,4 @@
-#![cfg(not(feature = "skip-end-to-end"))]
+#![cfg(feature = "end-to-end")]
 
 use std::time::Duration;
 

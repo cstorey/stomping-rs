@@ -31,11 +31,11 @@ jobs:
       - run: cargo fmt -- --check
       - *RESTORE_REGISTRY
       - run: rustc --version | tee ~/rust-version
-      - run: cargo build --all --tests --features skip-end-to-end
+      - run: cargo build --all --tests --features end-to-end
       - *SAVE_REGISTRY
-      - run: cargo test --all --features skip-end-to-end
-      - run: sudo ./.circleci/install-rabbitmq.sh
       - run: cargo test --all
+      - run: sudo ./.circleci/install-rabbitmq.sh
+      - run: cargo test --all --features end-to-end
 workflows:
   testall:
     jobs:

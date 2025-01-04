@@ -187,7 +187,7 @@ async fn run_s2c(
         ka_factor,
     );
     loop {
-        let it = if let Some(keepalive) = keepalive {
+        let frame = if let Some(keepalive) = keepalive {
             timeout(keepalive * ka_factor, inner.next())
                 .map_err(|_| StompError::PeerFailed)
                 .await?
@@ -195,14 +195,14 @@ async fn run_s2c(
         } else {
             inner.next().await.transpose()?
         };
-        trace!("s2c frame: {:?}", it);
 
-        match it {
+        match frame {
             Some(FrameOrKeepAlive::KeepAlive) => {
-                debug!("Received keepalive.");
+                trace!("Received keepalive.");
             }
 
             Some(FrameOrKeepAlive::Frame(frame)) => {
+                trace!(?frame.command, ?frame.headers, "s2c frame");
                 match frame.command {
                     Command::Message => {
                         let subscription_id =

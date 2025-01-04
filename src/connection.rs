@@ -181,11 +181,7 @@ async fn run_s2c(
 ) -> Result<()> {
     let ka_factor = 2;
 
-    trace!(
-        "Awaiting server messages; keepalive interval: {:?} s (factor: {})",
-        keepalive.map(|ka| ka.as_secs_f64()),
-        ka_factor,
-    );
+    trace!(?keepalive, ?ka_factor, "Awaiting server messages");
     loop {
         let frame = if let Some(keepalive) = keepalive {
             timeout(keepalive * ka_factor, inner.next())

@@ -10,6 +10,7 @@ use nom::{
 };
 use nom::{error::ErrorKind, Err, IResult};
 use thiserror::Error;
+use tracing::trace;
 
 use crate::protocol::{Command, Frame, FrameOrKeepAlive, Headers};
 
@@ -33,11 +34,16 @@ pub(crate) fn parse_frame(input: &mut BytesMut) -> Result<Option<FrameOrKeepAliv
                 input.len()
             );
 
+            trace!(?consumed, "Parsed frame");
+
             input.advance(consumed);
 
             Ok(Some(frame))
         }
-        Err(Err::Incomplete(_)) => Ok(None),
+        Err(Err::Incomplete(needed)) => {
+            trace!(?needed, "Incomplete frame parse");
+            Ok(None)
+        }
         Err(Err::Error(e)) => Err(e.into()),
         Err(Err::Failure(e)) => Err(e.into()),
     }

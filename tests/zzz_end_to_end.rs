@@ -1,23 +1,18 @@
 #![cfg(feature = "end-to-end")]
 
-use std::{future::Future, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use futures::stream::StreamExt;
 use stomping::{Client, StompError, *};
-use tokio::time::timeout;
+use tokio::{task::JoinHandle, time::timeout};
 use tracing::{debug, info};
 use uuid::Uuid;
 
 #[tokio::test]
 async fn can_round_trip_text() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect_to_stomp().await.expect("connect");
-    let conn_task = tokio::spawn(async {
-        debug!("Starting connection");
-        let res = conn.await;
-        debug!("Connection terminated: {:?}", res);
-    });
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let body = b"42";
     let queue = format!("/queue/can_round_trip_text-{}", Uuid::new_v4());
@@ -44,15 +39,7 @@ async fn can_round_trip_text() {
 #[tokio::test]
 async fn can_round_trip_binary_blobs() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let body = b"\x00\x01\x02\x03";
     let queue = format!("/queue/can_round_trip_binary_blobs-{}", Uuid::new_v4());
@@ -73,15 +60,7 @@ async fn can_round_trip_binary_blobs() {
 #[tokio::test]
 async fn client_acks_should_allow_redelivery() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let body = b"42";
     let queue = format!(
@@ -107,15 +86,7 @@ async fn client_acks_should_allow_redelivery() {
     assert!(res.is_ok(), "Conection exited normally");
     debug!("First connection done");
 
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let mut sub = client
         .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
@@ -133,15 +104,7 @@ async fn client_acks_should_allow_redelivery() {
 async fn can_encode_headers_correctly() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
     debug!("Connecting");
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let body = b"42";
     let queue = format!("/queue/can_encode_headers_correctly:{}", Uuid::new_v4());
@@ -163,15 +126,7 @@ async fn can_encode_headers_correctly() {
 #[tokio::test]
 async fn should_allow_acking_individual_messages() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let queue = format!(
         "/queue/should_allow_acking_individual_messages-{}",
@@ -217,15 +172,7 @@ async fn should_allow_acking_individual_messages() {
     assert!(res.is_ok(), "Conection exited normally");
     info!("Disconnected first connection; reconnecting");
 
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let mut sub = client
         .subscribe(&queue, "one", AckMode::ClientIndividual, Default::default())
@@ -246,15 +193,7 @@ async fn should_allow_acking_individual_messages() {
 #[ignore]
 async fn thing_to_test_timeouts() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        Some(Duration::from_millis(500)),
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let queue = format!("/queue/thing_to_test_timeouts-{}", Uuid::new_v4());
 
@@ -273,15 +212,7 @@ async fn thing_to_test_timeouts() {
 #[tokio::test]
 async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(conn);
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let queue = format!(
         "/queue/should_allow_disconnect_by_dropping_with_pending_deliveries-{}",
@@ -314,20 +245,7 @@ async fn should_allow_disconnect_by_dropping_with_pending_deliveries() {
 #[tokio::test]
 async fn should_fail_when_we_force_an_error() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
-    let conn_task = tokio::spawn(async {
-        debug!("Starting connection");
-        let res = conn.await;
-        debug!("Connection terminated: {:?}", res);
-        res
-    });
+    let (conn_task, mut client) = connect_to_stomp().await.expect("connect");
 
     let queue = format!("/invalid-thing/can_round_trip_text-{}", Uuid::new_v4());
 
@@ -341,17 +259,23 @@ async fn should_fail_when_we_force_an_error() {
 
     let res = timeout(Duration::from_millis(1000), conn_task)
         .await
+        // .expect("task succeeded")
         .expect("no timeout")
         .expect("joins okay");
 
-    match res.expect_err("has error") {
+    let err = res.expect_err("has error");
+
+    match err
+        .downcast::<StompError>()
+        .expect("downcast to StompError")
+    {
         StompError::StompError { .. } => {}
         e => panic!("Unexpected error: Got: {:?}", e),
     }
 }
 
-async fn connect_to_stomp() -> Result<(impl Future<Output = Result<()>>, Client)> {
-    let (task, client) = connect(
+async fn connect_to_stomp() -> Result<(JoinHandle<Result<()>>, Client)> {
+    let (conn, client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
         None,
@@ -359,7 +283,7 @@ async fn connect_to_stomp() -> Result<(impl Future<Output = Result<()>>, Client)
     )
     .await?;
 
-    let task = async move { Ok(task.await?) };
+    let task = tokio::spawn(async move { Ok(conn.await?) });
 
     Ok((task, client))
 }

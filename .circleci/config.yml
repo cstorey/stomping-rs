@@ -51,7 +51,7 @@ jobs:
           set -euxo pipefail
           STOMP_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' rabbitmq)
           export STOMP_ADDRESS="${STOMP_IP}:61613"
-          cargo nextest run --all --features end-to-end
+          cargo nextest run --all --features end-to-end --test zzz_end_to_end
 
 workflows:
   testall:

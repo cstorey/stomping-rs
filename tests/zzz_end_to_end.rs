@@ -1,9 +1,9 @@
 #![cfg(feature = "end-to-end")]
 
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use futures::stream::StreamExt;
-use stomping::*;
+use stomping::{Client, StompError, *};
 use tokio::time::timeout;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -11,14 +11,7 @@ use uuid::Uuid;
 #[tokio::test]
 async fn can_round_trip_text() {
     tracing_subscriber::fmt::try_init().unwrap_or_default();
-    let (conn, mut client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await
-    .expect("connect");
+    let (conn, mut client) = connect_to_stomp().await.expect("connect");
     let conn_task = tokio::spawn(async {
         debug!("Starting connection");
         let res = conn.await;
@@ -354,4 +347,17 @@ async fn should_fail_when_we_force_an_error() {
         StompError::StompError { .. } => {}
         e => panic!("Unexpected error: Got: {:?}", e),
     }
+}
+
+async fn connect_to_stomp(
+) -> Result<(impl Future<Output = Result<(), StompError>>, Client), StompError> {
+    let res = connect(
+        ("localhost", 61613),
+        Some(("guest", "guest")),
+        None,
+        Default::default(),
+    )
+    .await?;
+
+    Ok(res)
 }

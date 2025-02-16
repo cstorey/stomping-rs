@@ -19,6 +19,7 @@ jobs:
           RUSTFLAGS: -D warnings
           MERGE_BASE: main
     steps:
+      - setup_remote_docker
       - checkout
       - run: |
               upstream=${CIRCLE_REPOSITORY_URL:-$(git remote  get-url origin)}

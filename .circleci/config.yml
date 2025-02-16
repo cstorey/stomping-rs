@@ -35,11 +35,12 @@ jobs:
       - run: rustup component add rustfmt
       - run: rustfmt --version
       - run: cargo fmt -- --check
+      - run: ./bin/ci-install-nextest
       - *RESTORE_REGISTRY
       - run: rustc --version | tee ~/rust-version
       - run: cargo build --all --tests --features end-to-end
       - *SAVE_REGISTRY
-      - run: cargo test --all
+      - run: cargo nextest run --all
 
       - run: until docker exec --user rabbitmq rabbitmq rabbitmq-diagnostics -q check_running; do sleep 1; done
       - run: docker ps -a
@@ -50,7 +51,7 @@ jobs:
           set -euxo pipefail
           STOMP_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' rabbitmq)
           export STOMP_ADDRESS="${STOMP_IP}:61613"
-          cargo test --all --features end-to-end
+          cargo nextest run --all --features end-to-end
 
 workflows:
   testall:

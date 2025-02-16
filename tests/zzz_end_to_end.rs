@@ -275,13 +275,10 @@ async fn should_fail_when_we_force_an_error() -> Result<()> {
 }
 
 async fn connect_to_stomp() -> Result<(JoinHandle<Result<()>>, Client)> {
-    let (conn, client) = connect(
-        ("localhost", 61613),
-        Some(("guest", "guest")),
-        None,
-        Default::default(),
-    )
-    .await?;
+    let addr = ("localhost", 61613);
+    let (conn, client) = connect(addr, Some(("guest", "guest")), None, Default::default())
+        .await
+        .with_context(|| format!("Connecting to: {addr:?}"))?;
 
     let task = tokio::spawn(async move { Ok(conn.await?) });
 

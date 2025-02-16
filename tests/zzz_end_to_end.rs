@@ -2,6 +2,7 @@
 
 use std::{future::Future, time::Duration};
 
+use anyhow::Result;
 use futures::stream::StreamExt;
 use stomping::{Client, StompError, *};
 use tokio::time::timeout;
@@ -349,9 +350,8 @@ async fn should_fail_when_we_force_an_error() {
     }
 }
 
-async fn connect_to_stomp(
-) -> Result<(impl Future<Output = Result<(), StompError>>, Client), StompError> {
-    let res = connect(
+async fn connect_to_stomp() -> Result<(impl Future<Output = Result<()>>, Client)> {
+    let (task, client) = connect(
         ("localhost", 61613),
         Some(("guest", "guest")),
         None,
@@ -359,5 +359,7 @@ async fn connect_to_stomp(
     )
     .await?;
 
-    Ok(res)
+    let task = async move { Ok(task.await?) };
+
+    Ok((task, client))
 }

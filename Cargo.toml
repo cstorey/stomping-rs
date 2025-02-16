@@ -19,6 +19,7 @@ uuid = { version = "1.0.0", features = ["v4"] }
 suppositions = "0.1.4"
 tokio = {version="1.0.1", features=["macros", "rt", "net", "time"]}
 tracing-subscriber = { version = "0.3.18", features = ["fmt"] }
+anyhow = { version = "1.0.95", features = ["backtrace"] }
 
 [features]
 # To run end to end tests on CI

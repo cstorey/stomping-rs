@@ -1,6 +1,6 @@
 #![cfg(feature = "end-to-end")]
 
-use std::time::Duration;
+use std::{env, sync::LazyLock, time::Duration};
 
 use anyhow::{Context, Result};
 use futures::stream::StreamExt;
@@ -8,6 +8,13 @@ use stomping::{Client, StompError, *};
 use tokio::{task::JoinHandle, time::timeout};
 use tracing::{debug, info};
 use uuid::Uuid;
+
+static STOMP_ADDRESS: LazyLock<String> = LazyLock::new(|| {
+    let Some(addr) = env::var_os("STOMP_ADDRESS") else {
+        return "localhost:61613".into();
+    };
+    addr.into_string().expect("$STOMP_ADDRESS")
+});
 
 #[tokio::test]
 async fn can_round_trip_text() -> Result<()> {
@@ -275,7 +282,7 @@ async fn should_fail_when_we_force_an_error() -> Result<()> {
 }
 
 async fn connect_to_stomp() -> Result<(JoinHandle<Result<()>>, Client)> {
-    let addr = ("localhost", 61613);
+    let addr = &*STOMP_ADDRESS;
     let (conn, client) = connect(addr, Some(("guest", "guest")), None, Default::default())
         .await
         .with_context(|| format!("Connecting to: {addr:?}"))?;

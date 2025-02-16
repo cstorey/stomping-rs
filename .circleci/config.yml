@@ -14,11 +14,17 @@ version: 2.1
 jobs:
   buildtest:
     docker:
-      - image: cimg/rust:1.75
+      - image: cimg/rust:1.84.1
         environment:
           RUSTFLAGS: -D warnings
           MERGE_BASE: main
+          RABBITMQ_MANAGEMENT_URL: http://guest:guest@localhost:15672/
+          RABBITMQ_URL: amqp://127.0.0.1:5672/
     steps:
+      - setup_remote_docker
+      - run:
+          command: docker run --name rabbitmq --publish 61613:61613 rabbitmq:3.12.12-management
+          background: true
       - checkout
       - run: |
               upstream=${CIRCLE_REPOSITORY_URL:-$(git remote  get-url origin)}
@@ -29,13 +35,24 @@ jobs:
       - run: rustup component add rustfmt
       - run: rustfmt --version
       - run: cargo fmt -- --check
+      - run: ./bin/ci-install-nextest
       - *RESTORE_REGISTRY
       - run: rustc --version | tee ~/rust-version
       - run: cargo build --all --tests --features end-to-end
       - *SAVE_REGISTRY
-      - run: cargo test --all
-      - run: sudo ./.circleci/install-rabbitmq.sh
-      - run: cargo test --all --features end-to-end
+      - run: cargo nextest run --all
+
+      - run: until docker exec --user rabbitmq rabbitmq rabbitmq-diagnostics -q check_running; do sleep 1; done
+      - run: docker ps -a
+      - run: docker exec rabbitmq rabbitmq-plugins enable rabbitmq_stomp
+      - run: until docker exec --user rabbitmq rabbitmq rabbitmq-diagnostics -q check_running; do sleep 1; done
+
+      - run: |
+          set -euxo pipefail
+          STOMP_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' rabbitmq)
+          export STOMP_ADDRESS="${STOMP_IP}:61613"
+          cargo nextest run --all --features end-to-end --test zzz_end_to_end
+
 workflows:
   testall:
     jobs:

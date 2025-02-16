@@ -259,7 +259,6 @@ async fn should_fail_when_we_force_an_error() {
 
     let res = timeout(Duration::from_millis(1000), conn_task)
         .await
-        // .expect("task succeeded")
         .expect("no timeout")
         .expect("joins okay");
 

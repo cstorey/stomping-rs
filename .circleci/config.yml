@@ -14,7 +14,7 @@ version: 2.1
 jobs:
   buildtest:
     docker:
-      - image: cimg/rust:1.75
+      - image: cimg/rust:1.84.1
         environment:
           RUSTFLAGS: -D warnings
           MERGE_BASE: main

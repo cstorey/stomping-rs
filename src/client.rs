@@ -128,18 +128,21 @@ impl Client {
 
         let req = DisconnectReq { done, id };
         match self.c2s.send(ClientReq::Disconnect(req)).await {
-            Ok(()) => {
-                rx.await?;
-                Ok(())
-            }
+            Ok(()) => {}
             Err(err) if err.is_disconnected() => {
                 // If you're looking at this, and wondering why it's not tested, then yes
                 // it's because I'm quite, quite lazy.
                 warn!(?err, "Attempting to disconnect disconnected client");
-                Ok(())
+                return Ok(());
             }
-            Err(err) => Err(err.into()),
+            Err(err) => return Err(err.into()),
+        };
+
+        match rx.await {
+            Ok(()) => trace!("Successfully disconnected"),
+            Err(err) => warn!("Error disconnecting: {}", err),
         }
+        Ok(())
     }
 
     pub async fn ack(&mut self, headers: &Headers) -> Result<()> {
